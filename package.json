@@ -1,0 +1,27 @@
+{
+  "name": "wa-bot-keuangan-todo",
+  "version": "1.0.0",
+  "description": "Bot WhatsApp untuk catat pengeluaran/pemasukan dan to-do list ke Google Sheets, dengan AI Gemini via command /ai",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@hapi/boom": "^10.0.1",
+    "jimp": "^0.22.12",
+    "wa-sticker-formatter": "^4.4.4",
+    "xlsx": "^0.18.5",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "dotenv": "^16.4.5",
+    "googleapis": "^144.0.0",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "allowScripts": {
+    "@whiskeysockets/baileys@6.7.24": true,
+    "protobufjs@7.6.5": true,
+    "sharp@0.30.7": true
+  }
+}
