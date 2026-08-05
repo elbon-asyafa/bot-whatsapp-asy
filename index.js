@@ -159,55 +159,55 @@ async function startBot() {
       if (msgTime > 0 && msgTime < botStartTime - 10) continue;
 
       const sender = msg.key.remoteJid; // ke sini balesan bot dikirim (personal JID atau grup JID)
-    if (sender.endsWith("@newsletter")) return; // abaikan update channel, bukan chat personal
+        if (sender.endsWith("@newsletter")) return; // abaikan update channel, bukan chat personal
 
-    const isGroup = sender.endsWith("@g.us");
-    const authorId = isGroup ? msg.key.participant || sender : sender; // identitas ASLI si pengirim
-    const pushName = msg.pushName || null; // nama profil WA, buat fallback tanpa perlu /daftarbot
-    const mentionedJid = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
+        const isGroup = sender.endsWith("@g.us");
+        const authorId = isGroup ? msg.key.participant || sender : sender; // identitas ASLI si pengirim
+        const pushName = msg.pushName || null; // nama profil WA, buat fallback tanpa perlu /daftarbot
+        const mentionedJid = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
 
-    // Kadang WA kasih tau "JID alternatif" (nomor asli) di samping @lid, kalau ada kita tangkep
-    const nomorAsli = msg.key.remoteJidAlt || msg.key.participantAlt || null;
+        // Kadang WA kasih tau "JID alternatif" (nomor asli) di samping @lid, kalau ada kita tangkep
+        const nomorAsli = msg.key.remoteJidAlt || msg.key.participantAlt || null;
 
-    // Foto struk: gambar dengan caption /struk
-    const caption = msg.message.imageMessage?.caption || "";
-    if (msg.message.imageMessage && caption.trim().toLowerCase().startsWith("/struk")) {
-      console.log(`[MASUK] ${authorId} -> [foto struk]`);
-      try {
-        await handleStruk(sock, sender, authorId, msg, isGroup, nomorAsli);
-        console.log(`[SELESAI] Struk dari ${authorId} udah diproses.`);
-      } catch (err) {
-        console.error(`[ERROR] Gagal proses struk dari ${authorId}:`, err);
-        await sock.sendMessage(sender, {
-          text: "⚠️ Gagal baca struk-nya. Coba foto ulang yang lebih jelas.",
-        });
-      }
-      return;
-    }
+        // Foto struk: gambar dengan caption /struk
+        const caption = msg.message.imageMessage?.caption || "";
+        if (msg.message.imageMessage && caption.trim().toLowerCase().startsWith("/struk")) {
+          console.log(`[MASUK] ${authorId} -> [foto struk]`);
+          try {
+            await handleStruk(sock, sender, authorId, msg, isGroup, nomorAsli);
+            console.log(`[SELESAI] Struk dari ${authorId} udah diproses.`);
+          } catch (err) {
+            console.error(`[ERROR] Gagal proses struk dari ${authorId}:`, err);
+            await sock.sendMessage(sender, {
+              text: "⚠️ Gagal baca struk-nya. Coba foto ulang yang lebih jelas.",
+            });
+          }
+          return;
+        }
 
-    // Foto biasa dengan caption /stiker atau /sticker: convert jadi stiker WA
-    const captionLower = caption.trim().toLowerCase();
-    if (
-      msg.message.imageMessage &&
-      (captionLower.startsWith("/stiker") || captionLower.startsWith("/sticker"))
-    ) {
-      console.log(`[MASUK] ${authorId} -> [foto buat stiker]`);
-      try {
-        await handleStiker(sock, sender, authorId, msg, caption);
-        console.log(`[SELESAI] Stiker buat ${authorId} udah dikirim.`);
-      } catch (err) {
-        console.error(`[ERROR] Gagal bikin stiker buat ${authorId}:`, err);
-        await sock.sendMessage(sender, {
-          text: "⚠️ Gagal bikin stiker. Coba foto lain.",
-        });
-      }
-      return;
-    }
+        // Foto biasa dengan caption /stiker atau /sticker: convert jadi stiker WA
+        const captionLower = caption.trim().toLowerCase();
+        if (
+          msg.message.imageMessage &&
+          (captionLower.startsWith("/stiker") || captionLower.startsWith("/sticker"))
+        ) {
+          console.log(`[MASUK] ${authorId} -> [foto buat stiker]`);
+          try {
+            await handleStiker(sock, sender, authorId, msg, caption);
+            console.log(`[SELESAI] Stiker buat ${authorId} udah dikirim.`);
+          } catch (err) {
+            console.error(`[ERROR] Gagal bikin stiker buat ${authorId}:`, err);
+            await sock.sendMessage(sender, {
+              text: "⚠️ Gagal bikin stiker. Coba foto lain.",
+            });
+          }
+          return;
+        }
 
-    const text =
-      msg.message.conversation ||
-      msg.message.extendedTextMessage?.text ||
-      "";
+      const text =
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text ||
+        "";
 
     if (!text.startsWith("/")) return; // abaikan pesan non-command
 
