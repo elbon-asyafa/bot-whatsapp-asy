@@ -99,7 +99,21 @@ function bolehAksesFitur(sender) {
   return ALLOWED_NUMBERS.length === 0 || ALLOWED_NUMBERS.includes(sender);
 }
 
+let currentSock = null;
+let reconnectTimer = null;
+
 async function startBot() {
+  if (currentSock) {
+    try {
+      currentSock.end(undefined);
+    } catch (_) {}
+    currentSock = null;
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
   const logger = pino({ level: "silent" });
   const { state, saveCreds } = await useMultiFileAuthState("auth_session");
   const { version } = await fetchLatestBaileysVersion();
@@ -113,6 +127,8 @@ async function startBot() {
     },
     logger,
   });
+
+  currentSock = sock;
 
   sock.ev.on("creds.update", saveCreds);
 
@@ -135,7 +151,8 @@ async function startBot() {
         // jangan langsung nyambung ulang — tunggu biar link lama kelepas dulu.
         const delayMs = statusCode === 440 ? 20000 : 5000;
         console.log(`Nyambung ulang dalam ${delayMs / 1000} detik...`);
-        setTimeout(startBot, delayMs);
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(startBot, delayMs);
       }
     } else if (connection === "open") {
       console.log("✅ Bot WhatsApp terkoneksi!");
