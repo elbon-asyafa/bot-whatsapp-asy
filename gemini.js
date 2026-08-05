@@ -89,19 +89,19 @@ const tools = [
 ];
 
 const chatModel = genAI.getGenerativeModel({
-  model: "gemini-3.1-flash-lite",
+  model: "gemini-3.5-flash-lite",
   tools,
   systemInstruction: SYSTEM_INSTRUCTION,
 });
 
 const plainModel = genAI.getGenerativeModel({
-  model: "gemini-3.1-flash-lite",
+  model: "gemini-3.5-flash-lite",
   systemInstruction: SYSTEM_INSTRUCTION,
 });
 
 // Dipanggil buat baca foto struk belanja, extract nominal + keterangan otomatis
 async function analisisStruk(base64Data, mimeType) {
-  const visionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const visionModel = genAI.getGenerativeModel({ model: "gemini-3.5-flash-lite" });
 
   const prompt =
     `Ini foto struk/nota belanja. Baca dan ekstrak informasinya. ` +

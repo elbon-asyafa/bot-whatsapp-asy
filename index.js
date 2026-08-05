@@ -101,9 +101,20 @@ function bolehAksesFitur(sender) {
 
 let currentSock = null;
 let reconnectTimer = null;
+let reminderIntervals = [];
+
+function clearReminderIntervals() {
+  for (const id of reminderIntervals) {
+    clearInterval(id);
+  }
+  reminderIntervals = [];
+}
 
 async function startBot() {
   if (currentSock) {
+    try {
+      currentSock.ev.removeAllListeners();
+    } catch (_) {}
     try {
       currentSock.end(undefined);
     } catch (_) {}
@@ -113,6 +124,7 @@ async function startBot() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  clearReminderIntervals();
 
   const logger = pino({ level: "silent" });
   const { state, saveCreds } = await useMultiFileAuthState("auth_session");
@@ -133,6 +145,7 @@ async function startBot() {
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", (update) => {
+    if (sock !== currentSock) return;
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
@@ -166,7 +179,8 @@ async function startBot() {
   const botStartTime = Math.floor(Date.now() / 1000);
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return; // Hanya proses pesan baru real-time, abaikan sync history ('append')
+    if (sock !== currentSock) return;
+    if (type !== "notify") return;
 
     for (const msg of messages) {
       if (!msg.message || msg.key.fromMe) continue;
@@ -1177,9 +1191,11 @@ async function cekAlarmBerkala(sock) {
 }
 
 function mulaiReminderBerkala(sock) {
-  setInterval(() => kirimRekapBerkala(sock), DUA_JAM_MS);
-  setInterval(() => kirimReminderTodo(sock), LIMA_BELAS_MENIT_MS);
-  setInterval(() => cekAlarmBerkala(sock), 5 * 60 * 1000);
+  reminderIntervals = [
+    setInterval(() => kirimRekapBerkala(sock), DUA_JAM_MS),
+    setInterval(() => kirimReminderTodo(sock), LIMA_BELAS_MENIT_MS),
+    setInterval(() => cekAlarmBerkala(sock), 5 * 60 * 1000),
+  ];
   console.log("⏰ Reminder berkala aktif: rekap tiap 2 jam, todo tiap 15 menit, alarm dicek tiap 5 menit.");
   console.log("   (Nunggu interval pertama lewat dulu baru kekirim. Test manual: /testreminder)");
 }
