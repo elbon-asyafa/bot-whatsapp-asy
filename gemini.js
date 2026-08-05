@@ -101,7 +101,7 @@ const plainModel = genAI.getGenerativeModel({
 
 // Dipanggil buat baca foto struk belanja, extract nominal + keterangan otomatis
 async function analisisStruk(base64Data, mimeType) {
-  const visionModel = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
+  const visionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const prompt =
     `Ini foto struk/nota belanja. Baca dan ekstrak informasinya. ` +
