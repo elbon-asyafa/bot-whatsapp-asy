@@ -28,6 +28,8 @@ Repo: https://github.com/elbon-asyafa/bot-whatsapp-asy
 5. [Konfigurasi File `.env`](#5-konfigurasi-file-env)
 6. [Menjalankan Bot dengan Docker (Direkomendasikan)](#6-menjalankan-bot-dengan-docker-direkomendasikan)
 7. [Menjalankan Bot Tanpa Docker (Alternatif)](#7-menjalankan-bot-tanpa-docker-alternatif)
+   - [7.1 Panduan untuk Windows (CMD / PowerShell / Git Bash)](#71-panduan-untuk-windows-cmd--powershell--git-bash)
+   - [7.2 Panduan untuk Linux (Debian / Ubuntu / Arch)](#72-panduan-untuk-linux-debian--ubuntu--arch)
 8. [Semua Command Bot](#8-semua-command-bot)
 9. [Struktur File](#9-struktur-file)
 10. [Troubleshooting](#10-troubleshooting)
@@ -310,23 +312,81 @@ dengan konfigurasi yang sama (`--env-file .env --restart always`).
 
 ## 7. Menjalankan Bot Tanpa Docker (Alternatif)
 
-Cocok untuk development lokal atau kalau tidak mau memakai Docker sama
-sekali.
+Cocok untuk development lokal atau jika tidak ingin menggunakan Docker.
 
-### 7.1 Install dependency sistem
+### 7.1 Panduan untuk Windows (CMD / PowerShell / Git Bash)
+
+#### A. Install Node.js (v20+)
+1. Download installer Node.js **v20 LTS atau versi lebih baru** dari situs resmi: [https://nodejs.org/](https://nodejs.org/)
+2. Jalankan installer (`.msi`) dan pastikan centang opsi **"Automatically install the necessary tools"** jika ada (ini menginstal Python & Build Tools yang dibutuhkan `node-canvas`).
+3. Buka PowerShell / Command Prompt baru, lalu cek versi:
+   ```powershell
+   node --version
+   npm --version
+   ```
+
+#### B. Install FFmpeg & yt-dlp (Untuk Media & Download)
+Pilih salah satu cara berikut:
+
+**Cara 1: Menggunakan `winget` (Rekomendasi - Otomatis masuk PATH)**
+Buka PowerShell / Command Prompt (Admin), lalu jalankan:
+```powershell
+winget install Gyan.FFmpeg
+winget install yt-dlp.yt-dlp
+```
+Setelah selesai, restart terminal kamu.
+
+**Cara 2: Manual Download**
+1. Download `yt-dlp.exe` dari [Releases yt-dlp](https://github.com/yt-dlp/yt-dlp/releases).
+2. Taruh file `yt-dlp.exe` langsung di folder root project ini (`bot-whatsapp-asy/yt-dlp.exe`). Bot akan otomatis mendeteksi file tersebut.
+3. Download build FFmpeg dari [Gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (misal `ffmpeg-release-full.7z`), ekstrak, lalu tambahkan folder `bin/`-nya ke Environment Variables (`PATH`) Windows.
+
+Cek verifikasi di terminal:
+```powershell
+ffmpeg -version
+yt-dlp --version
+```
+
+#### C. Install Dependency Project
+Jalankan di folder project via PowerShell / CMD / Git Bash:
+```powershell
+npm install --legacy-peer-deps
+```
+> **PENTING**: Flag `--legacy-peer-deps` **wajib** digunakan untuk menghindari konflik versi peer dependency.
+
+#### D. Jalankan Bot
+```powershell
+node index.js
+```
+QR code akan muncul di terminal — scan pakai WhatsApp di HP (**Perangkat Tertaut → Tautkan Perangkat**).
+
+#### E. Jalankan di Background (Windows - Opsional)
+Gunakan `pm2` supaya bot tidak mati saat terminal ditutup:
+```powershell
+npm install -g pm2
+pm2 start index.js --name wa-bot
+pm2 logs wa-bot
+pm2 save
+```
+
+---
+
+### 7.2 Panduan untuk Linux (Debian / Ubuntu / Arch)
+
+#### A. Install dependency sistem
 
 Contoh untuk Arch Linux:
 
 ```bash
 sudo pacman -Syu
-sudo pacman -S nodejs npm yt-dlp
+sudo pacman -S nodejs npm yt-dlp ffmpeg
 ```
 
 Untuk distro berbasis Debian/Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install nodejs npm yt-dlp
+sudo apt install nodejs npm yt-dlp ffmpeg
 ```
 
 Pastikan versi Node.js **20 atau lebih baru**:
@@ -337,32 +397,19 @@ npm --version
 yt-dlp --version
 ```
 
-`yt-dlp` yang terpasang lewat package manager sistem otomatis masuk ke
-PATH, jadi tidak perlu ditaruh manual di folder project.
-
-### 7.2 Install dependency Node.js project
+#### B. Install dependency Node.js project
 
 ```bash
 npm install --legacy-peer-deps
 ```
 
-> Flag `--legacy-peer-deps` **wajib** — lihat penjelasan lengkap di
-> [Bagian 10 (Troubleshooting)](#node-engine--legacy-peer-deps).
-
-### 7.3 Jalankan bot
+#### C. Jalankan bot
 
 ```bash
 node index.js
 ```
 
-QR code akan muncul di terminal — scan pakai WhatsApp (**Perangkat
-Tertaut → Tautkan Perangkat**). Tunggu sampai muncul pesan `✅ Bot
-WhatsApp terkoneksi!`.
-
-### 7.4 Jalankan terus di background (opsional)
-
-Pakai `pm2` supaya bot tetap jalan setelah terminal ditutup, dan lebih
-gampang di-manage dibanding `nohup`:
+#### D. Jalankan terus di background (opsional)
 
 ```bash
 sudo npm install -g pm2
@@ -370,7 +417,6 @@ pm2 start index.js --name wa-bot
 pm2 logs wa-bot         # lihat log real-time
 pm2 save                 # simpan state biar reload otomatis
 pm2 startup               # generate command auto-start saat boot
-                          # (ikuti instruksi yang muncul)
 ```
 
 ---
