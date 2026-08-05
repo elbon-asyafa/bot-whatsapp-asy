@@ -1,6 +1,7 @@
 const {
   default: makeWASocket,
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
@@ -18,6 +19,7 @@ process.on("uncaughtException", (err) => {
 
 const sheets = require("./sheets");
 const { tanyaAI, prosesPerintahBot, analisisStruk } = require("./gemini");
+const { generateStaticBrat, generateAnimatedBrat } = require("./brat-advanced");
 const XLSX = require("xlsx");
 const { Sticker, StickerTypes } = require("wa-sticker-formatter");
 const Jimp = require("jimp");
@@ -98,14 +100,18 @@ function bolehAksesFitur(sender) {
 }
 
 async function startBot() {
+  const logger = pino({ level: "silent" });
   const { state, saveCreds } = await useMultiFileAuthState("auth_session");
   const { version } = await fetchLatestBaileysVersion();
   console.log("Pakai versi WhatsApp Web:", version.join("."));
 
   const sock = makeWASocket({
     version,
-    auth: state,
-    logger: pino({ level: "silent" }),
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
+    logger,
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -124,7 +130,13 @@ async function startBot() {
       console.log("Koneksi terputus. Status code:", statusCode);
       console.log("Detail error:", lastDisconnect?.error?.message || lastDisconnect?.error);
       console.log("Reconnect:", shouldReconnect);
-      if (shouldReconnect) startBot();
+      if (shouldReconnect) {
+        // 440 = stream errored (conflict). WhatsApp masih nganggap koneksi lama aktif;
+        // jangan langsung nyambung ulang — tunggu biar link lama kelepas dulu.
+        const delayMs = statusCode === 440 ? 20000 : 5000;
+        console.log(`Nyambung ulang dalam ${delayMs / 1000} detik...`);
+        setTimeout(startBot, delayMs);
+      }
     } else if (connection === "open") {
       console.log("✅ Bot WhatsApp terkoneksi!");
       sheets.ensureBaseSheets().catch((e) =>
@@ -134,11 +146,19 @@ async function startBot() {
     }
   });
 
-  sock.ev.on("messages.upsert", async ({ messages }) => {
-    const msg = messages[0];
-    if (!msg.message || msg.key.fromMe) return;
+  const botStartTime = Math.floor(Date.now() / 1000);
 
-    const sender = msg.key.remoteJid; // ke sini balesan bot dikirim (personal JID atau grup JID)
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    if (type !== "notify") return; // Hanya proses pesan baru real-time, abaikan sync history ('append')
+
+    for (const msg of messages) {
+      if (!msg.message || msg.key.fromMe) continue;
+
+      // Abaikan pesan usang yang masuk saat bot mati/reconnect (margin 10 detik sebelum bot start)
+      const msgTime = Number(msg.messageTimestamp) || 0;
+      if (msgTime > 0 && msgTime < botStartTime - 10) continue;
+
+      const sender = msg.key.remoteJid; // ke sini balesan bot dikirim (personal JID atau grup JID)
     if (sender.endsWith("@newsletter")) return; // abaikan update channel, bukan chat personal
 
     const isGroup = sender.endsWith("@g.us");
@@ -221,6 +241,7 @@ async function startBot() {
         text: "⚠️ Ada error pas proses command. Coba lagi ya.",
       });
     }
+    }
   });
 }
 
@@ -262,6 +283,7 @@ async function handleStruk(sock, sender, authorId, msg, isGroup, nomorAsli) {
     text: `✅ [${nama}] Struk terbaca & tercatat otomatis:\nKeluar ${formatRupiah(hasil.nominal)} - ${hasil.keterangan}`,
   });
 }
+
 
 async function tambahTeksMeme(buffer, teksAtas, teksBawah) {
   const image = await Jimp.read(buffer);
@@ -345,12 +367,13 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
   const cmd = command.toLowerCase();
 
   // Command Akun/Keuangan/To-Do/Admin cuma boleh di chat pribadi, nggak di grup
-  const PERSONAL_ONLY_COMMANDS = [
-    "/daftarbot", "/deleteuser",
-    "/masuk", "/keluar", "/rekap", "/riwayat", "/unduhrekap",
-    "/todo", "/listtodo", "/done",
-    "/listuser", "/adminhapususer", "/testreminder",
-  ];
+    const PERSONAL_ONLY_COMMANDS = [
+      "/daftarbot", "/deleteuser",
+      "/masuk", "/keluar", "/rekap", "/riwayat", "/unduhrekap",
+      "/todo", "/listtodo", "/done",
+      "/listuser", "/adminhapususer", "/testreminder",
+      "/alert",
+    ];
   if (isGroup && PERSONAL_ONLY_COMMANDS.includes(cmd)) {
     return sock.sendMessage(sender, {
       text: "Command ini cuma bisa dipakai di chat pribadi ke bot, bukan di grup.",
@@ -387,18 +410,14 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
   }
 
   if (cmd === "/help") {
-    const bagianAdminPersonal =
-      isOwner(authorId) && !isGroup
+      const bagianAdmin = isOwner(authorId)
         ? `\n\n*Admin* (khusus pemilik bot)\n` +
-          `/listuser — lihat semua user terdaftar\n` +
-          `/adminhapususer [nama] — hapus akun user manapun\n` +
-          `/testreminder — tes kirim reminder sekarang juga\n`
+          `/listuser — lihat semua user terdaftar (hanya chat pribadi)\n` +
+          `/adminhapususer [nama] — hapus akun user manapun (hanya chat pribadi)\n` +
+          `/testreminder — tes kirim reminder sekarang juga (hanya chat pribadi)\n` +
+          `/ping [text] — tag semua member grup (hanya di grup)\n` +
+          `/alert [text] — kirim info ke semua user & grup\n`
         : "";
-    const bagianNotif = isOwner(authorId)
-      ? (isGroup ? `\n\n*Admin*\n` : "") +
-        `/notif [pesan] — kirim & tag notif ke grup (di grup: grup itu aja, di DM: semua grup)`
-      : "";
-    const bagianAdmin = bagianAdminPersonal + bagianNotif;
 
     const bagianPersonal = isGroup
       ? ""
@@ -443,10 +462,12 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         `Kirim foto + caption /stiker — convert jadi stiker WA\n` +
         `Kirim foto + caption /stiker [teks] — stiker + teks meme, contoh: /stiker kecewa ringan\n` +
         `Kirim foto + caption /stiker [atas]|[bawah] — teks di atas & bawah sekaligus\n` +
-        `/download [link] — download video YouTube/TikTok (maks 60MB, keterbatasan WA)\n\n` +
+        `/download [link] [format] — download video/audio YouTube/TikTok (format: mp3/mp4, default mp4, video maks 60MB)\n\n` +
         `*Utilitas*\n` +
-        `/kirim [nomor] [pesan] — kirim pesan lewat bot ke nomor lain\n` +
-        `Reply stiker + /kirim [nomor] — forward stiker itu ke nomor lain\n\n` +
+          `/kirim [nomor] [pesan] — kirim pesan lewat bot ke nomor lain\n` +
+          `Reply stiker + /kirim [nomor] — forward stiker itu ke nomor lain\n` +
+          `/brat [teks] — bikin stiker brat statis (Arial Narrow, blur 8.4px)\n` +
+          `/bratvid [teks] — bikin stiker brat animasi kata per kata\n\n` +
         `*AI Assistant*\n` +
         `/ai [perintah/pertanyaan] — ngobrol bebas atau suruh bot ngapa-ngapain\n` +
         contohAI +
@@ -504,42 +525,139 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
     }
 
     case "/download": {
-      const url = args.trim();
-      if (!url || !/^https?:\/\//.test(url)) {
+      const parts = args.trim().split(/\s+/);
+      if (parts.length < 1) {
         return sock.sendMessage(sender, {
-          text: "Format: /download [link youtube/tiktok]\n\nCatatan: pastiin video yang kamu download itu boleh diunduh (video sendiri, Creative Commons, atau diizinin creator-nya).",
+          text: "Format: /download [link] [format]\nContoh: /download https://youtu.be/xyz mp3\nContoh: /download https://youtu.be/xyz mp4\nKalau format dikosongin, default mp4.\n\nBisa dari YouTube, TikTok, dan source lain yang didukung yt-dlp.",
         });
       }
 
-      await sock.sendMessage(sender, {
-        text: "Lagi download videonya, tunggu bentar... (maks 60MB ya, karena keterbatasan WA)",
-      });
+      const url = parts[0];
+      if (!/^https?:\/\//.test(url)) {
+        return sock.sendMessage(sender, {
+          text: "Format: /download [link] [format]\nContoh: /download https://youtu.be/xyz mp3\n\nCatatan: pastiin konten yang kamu download itu boleh diunduh (video sendiri, Creative Commons, atau diizinin creator-nya).",
+        });
+      }
+
+      let format = parts[1]?.toLowerCase() || "mp4";
+      if (format !== "mp3" && format !== "mp4") {
+        format = "mp4";
+      }
+
+      const statusText = format === "mp3"
+        ? "Lagi download & convert ke MP3, tunggu bentar..."
+        : "Lagi download videonya, tunggu bentar... (maks 60MB ya, karena keterbatasan WA)";
+
+      await sock.sendMessage(sender, { text: statusText });
 
       const tempDir = path.join(__dirname, "temp");
       if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-      const outputPath = path.join(tempDir, `video_${Date.now()}.mp4`);
+      const prefix = format === "mp3" ? "audio" : "video";
+      const ext = format;
+      const outputPath = path.join(tempDir, `${prefix}_${Date.now()}.${ext}`);
 
       try {
-        await new Promise((resolve, reject) => {
-          exec(
-            `${pathYtDlp()} -f "best[ext=mp4]/best" --max-filesize 60M -o "${outputPath}" "${url}"`,
-            { maxBuffer: 1024 * 1024 * 50 },
-            (err) => (err ? reject(err) : resolve())
-          );
-        });
-
-        if (!fs.existsSync(outputPath)) {
-          return sock.sendMessage(sender, {
-            text: "Gagal download, kemungkinan video kebesaran (>60MB) atau link nggak valid.",
+        if (format === "mp3") {
+          await new Promise((resolve, reject) => {
+            exec(
+              `${pathYtDlp()} -x --audio-format mp3 --extract-audio --audio-quality 0 -o "${outputPath}" "${url}"`,
+              { maxBuffer: 1024 * 1024 * 100 },
+              (err) => (err ? reject(err) : resolve())
+            );
+          });
+        } else {
+          await new Promise((resolve, reject) => {
+            exec(
+              `${pathYtDlp()} -f "best[ext=mp4]/best" --max-filesize 60M -o "${outputPath}" "${url}"`,
+              { maxBuffer: 1024 * 1024 * 50 },
+              (err) => (err ? reject(err) : resolve())
+            );
           });
         }
 
-        const videoBuffer = fs.readFileSync(outputPath);
-        await sock.sendMessage(sender, { video: videoBuffer, caption: "Nih videonya" });
-        fs.unlinkSync(outputPath);
+        const files = fs.readdirSync(tempDir).filter((f) => f.startsWith(prefix));
+        const finalFile = files.find((f) => f.endsWith(`.${ext}`));
+        if (!finalFile) {
+          const fallback = files[0];
+          if (fallback) {
+            const fallbackPath = path.join(tempDir, fallback);
+            const buf = fs.readFileSync(fallbackPath);
+            await sock.sendMessage(sender, {
+              [format === "mp3" ? "audio" : "video"]: buf,
+              mimetype: format === "mp3" ? "audio/mpeg" : undefined,
+              caption: format === "mp3" ? "Nih audionya" : "Nih videonya",
+            });
+            fs.unlinkSync(fallbackPath);
+            return;
+          }
+          return sock.sendMessage(sender, {
+            text: "Gagal download, kemungkinan konten nggak tersedia atau link nggak valid.",
+          });
+        }
+
+        const finalPath = path.join(tempDir, finalFile);
+        if (format === "mp3") {
+          const audioBuffer = fs.readFileSync(finalPath);
+          await sock.sendMessage(sender, {
+            audio: audioBuffer,
+            mimetype: "audio/mpeg",
+            caption: "Nih audionya",
+          });
+        } else {
+          const videoBuffer = fs.readFileSync(finalPath);
+          await sock.sendMessage(sender, { video: videoBuffer, caption: "Nih videonya" });
+        }
+        fs.unlinkSync(finalPath);
       } catch (e) {
+        const extraHelp = format === "mp3"
+          ? "\n\nCatatan: download MP3 butuh ffmpeg di server bot. Kalau belum keinstall, cek README buat cara install-nya."
+          : "";
+
         return sock.sendMessage(sender, {
-          text: `Gagal download: ${e.message}\n\nPastiin "yt-dlp" udah keinstall di komputer bot ya (cek README).`,
+          text: `Gagal download: ${e.message}\n\nPastiin "yt-dlp" udah keinstall di komputer bot ya (cek README).${extraHelp}`,
+        });
+      }
+      return;
+    }
+
+    case "/brat":
+    case "/bratvid": {
+      if (!bolehAksesFitur(authorId)) {
+        return sock.sendMessage(sender, {
+          text: "Kamu belum diaktifin buat pakai fitur bot ini. Minta admin nambahin JID kamu ke akses bot ya.",
+        });
+      }
+
+      const isVideo = cmd === "/bratvid";
+      const teks = args.trim();
+      const cmdLabel = isVideo ? "/bratvid (animasi)" : "/brat (statis)";
+      const formatMsg = isVideo
+        ? "Format: /bratvid [teks]\nContoh: /bratvid gue nggak mau\n\nStiker animasi kata per kata."
+        : "Format: /brat [teks]\nContoh: /brat gue nggak mau\n\nStiker background putih, teks hitam, font Arial Narrow, auto‑scaling, blur 8.4px.";
+
+      if (!teks) {
+        return sock.sendMessage(sender, { text: formatMsg });
+      }
+
+      await sock.sendMessage(sender, { text: `Lagi bikin stiker ${cmdLabel}...` });
+
+      try {
+        const webpBuffer = isVideo
+          ? await generateAnimatedBrat(teks)
+          : await generateStaticBrat(teks);
+
+        const sticker = new Sticker(webpBuffer, {
+          pack: "Bot Wangsaff",
+          author: "Bot by ©raiasy-bot 2026",
+          type: StickerTypes.FULL,
+          quality: 90,
+        });
+        const stickerBuffer = await sticker.toBuffer();
+        await sock.sendMessage(sender, { sticker: stickerBuffer });
+      } catch (e) {
+        console.error(`[BRAT${isVideo ? "VID" : ""}] Error:`, e);
+        await sock.sendMessage(sender, {
+          text: `Gagal bikin stiker ${cmdLabel}. Coba lagi ya.`,
         });
       }
       return;
@@ -852,48 +970,80 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
       return sock.sendMessage(sender, { text: "Test reminder selesai, cek pesan di atas." });
     }
 
-    case "/notif": {
+    case "/ping": {
       if (!isOwner(authorId)) {
         return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
       }
-      const pesanNotif = args.trim();
-      if (!pesanNotif) {
+      if (!isGroup) {
         return sock.sendMessage(sender, {
-          text:
-            "Format: /notif [pesan]\n\n" +
-            "Dipanggil DI DALAM grup -> kirim & tag semua member grup itu doang.\n" +
-            "Dipanggil DI CHAT PRIBADI -> broadcast ke SEMUA grup yang ada bot-nya.",
+          text: "Command /ping cuma bisa dipakai di grup, untuk tag semua member grup.",
         });
       }
 
-      const teksNotif = `📢 Pengumuman dari admin:\n\n${pesanNotif}`;
-
-      if (isGroup) {
-        const metadata = await sock.groupMetadata(sender).catch(() => null);
-        if (!metadata) {
-          return sock.sendMessage(sender, { text: "Gagal ambil data grup ini." });
-        }
-        const participantJids = metadata.participants.map((p) => p.id);
-        return sock.sendMessage(sender, { text: teksNotif, mentions: participantJids });
+      const pesan = args.trim();
+      if (!pesan) {
+        return sock.sendMessage(sender, {
+          text: "Format: /ping [text]\nContoh: /ping makan siang di kantin ya\n\nBot akan tag semua member grup dengan text yang kamu kasih.",
+        });
       }
 
-      // Dipanggil dari chat pribadi -> broadcast ke semua grup yang ada bot-nya
+      const metadata = await sock.groupMetadata(sender).catch(() => null);
+      if (!metadata) {
+        return sock.sendMessage(sender, { text: "Gagal ambil data grup ini." });
+      }
+      const participantJids = metadata.participants.map((p) => p.id);
+      return sock.sendMessage(sender, {
+        text: `🔔 ${pesan}`,
+        mentions: participantJids,
+      });
+    }
+
+    case "/alert": {
+      if (!isOwner(authorId)) {
+        return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
+      }
+
+      const pesanAlert = args.trim();
+      if (!pesanAlert) {
+        return sock.sendMessage(sender, {
+          text: "Format: /alert [text]\nContoh: /alert ada maintenance jam 2 malam",
+        });
+      }
+
+      const teksAlert = `⚠️ *Alert dari admin*:\n\n${pesanAlert}`;
+
+      const users = await sheets.getAllUsers();
+      let kirimKeUser = 0;
+      let kirimKeGrup = 0;
+
+      // Kirim ke semua user
+        for (const user of users) {
+          try {
+-            await sock.sendMessage(user.jid, { text: teksAlert });
++            console.log(`[ALERT] Mengirim ke ${user.jid}`);
++            await sock.sendMessage(user.jid, { text: teksAlert });
+            kirimKeUser++;
+          } catch (e) {
+            console.error(`[ALERT] Gagal kirim ke ${user.jid}: ${e.message}`);
+          }
+        }
+
+      // Kirim ke semua grup
       try {
         const semuaGrup = await sock.groupFetchAllParticipating();
         const daftarGrup = Object.values(semuaGrup);
-        if (daftarGrup.length === 0) {
-          return sock.sendMessage(sender, { text: "Bot belum ada di grup manapun." });
-        }
         for (const grup of daftarGrup) {
           const participantJids = grup.participants.map((p) => p.id);
-          await sock.sendMessage(grup.id, { text: teksNotif, mentions: participantJids });
+          await sock.sendMessage(grup.id, { text: teksAlert, mentions: participantJids });
+          kirimKeGrup++;
         }
-        return sock.sendMessage(sender, {
-          text: `Notif terkirim & tag semua member ke ${daftarGrup.length} grup.`,
-        });
       } catch (e) {
-        return sock.sendMessage(sender, { text: `Gagal broadcast notif: ${e.message}` });
+        console.error(`[ALERT] Gagal kirim ke grup: ${e.message}`);
       }
+
+      return sock.sendMessage(sender, {
+        text: `Alert terkirim:\n${kirimKeUser} user\n${kirimKeGrup} grup`,
+      });
     }
 
     case "/riwayat": {
@@ -1012,8 +1162,8 @@ async function cekAlarmBerkala(sock) {
 function mulaiReminderBerkala(sock) {
   setInterval(() => kirimRekapBerkala(sock), DUA_JAM_MS);
   setInterval(() => kirimReminderTodo(sock), LIMA_BELAS_MENIT_MS);
-  setInterval(() => cekAlarmBerkala(sock), 60 * 1000);
-  console.log("⏰ Reminder berkala aktif: rekap tiap 2 jam, todo tiap 15 menit, alarm dicek tiap menit.");
+  setInterval(() => cekAlarmBerkala(sock), 5 * 60 * 1000);
+  console.log("⏰ Reminder berkala aktif: rekap tiap 2 jam, todo tiap 15 menit, alarm dicek tiap 5 menit.");
   console.log("   (Nunggu interval pertama lewat dulu baru kekirim. Test manual: /testreminder)");
 }
 
