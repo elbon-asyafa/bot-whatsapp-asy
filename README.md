@@ -28,11 +28,12 @@ Repo: https://github.com/elbon-asyafa/bot-whatsapp-asy
 5. [Konfigurasi File `.env`](#5-konfigurasi-file-env)
 6. [Menjalankan Bot dengan Docker (Direkomendasikan)](#6-menjalankan-bot-dengan-docker-direkomendasikan)
 7. [Menjalankan Bot Tanpa Docker (Alternatif)](#7-menjalankan-bot-tanpa-docker-alternatif)
-   - [7.1 Panduan untuk Windows (CMD / PowerShell / Git Bash)](#71-panduan-untuk-windows-cmd--powershell--git-bash)
-   - [7.2 Panduan untuk Linux (Debian / Ubuntu / Arch)](#72-panduan-untuk-linux-debian--ubuntu--arch)
+    - [7.1 Panduan untuk Windows (CMD / PowerShell / Git Bash)](#71-panduan-untuk-windows-cmd--powershell--git-bash)
+    - [7.2 Panduan untuk Linux (Debian / Ubuntu / Arch)](#72-panduan-untuk-linux-debian--ubuntu--arch)
 8. [Semua Command Bot](#8-semua-command-bot)
-9. [Struktur File](#9-struktur-file)
-10. [Troubleshooting](#10-troubleshooting)
+9. [Group Activation System (Fitur Baru)](#8b-group-activation-system-fitur-baru)
+10. [Struktur File](#9-struktur-file)
+11. [Troubleshooting](#10-troubleshooting)
 
 ---
 
@@ -442,12 +443,83 @@ user biasa). Garis besarnya:
   [nomor]` untuk forward stiker
 - **AI Assistant**: `/ai [pertanyaan/perintah]` — ngobrol bebas atau
   menyuruh bot menjalankan aksi lewat bahasa natural (function calling)
-- **Admin** *(khusus `OWNER_NUMBERS`)*: `/listuser`, `/adminhapususer
-  [nama]`, `/testreminder`, `/ping [text]` (tag semua member grup, hanya di grup), `/alert [text]` (kirim info ke semua user & grup)
+- **Admin** *(khusus `OWNER_NUMBERS`)*:
+  - `/listuser` — lihat semua user terdaftar
+  - `/adminhapususer [nama]` — hapus akun user manapun
+  - `/testreminder` — tes kirim reminder sekarang juga
+  - `/ping [text]` — tag semua member grup (hanya di grup)
+  - `/alert [text]` — kirim info ke user & grup aktif (no duplikasi)
+  - `/botonline` — aktifkan bot di grup ini (hanya di grup, owner-cuma)
+  - `/botoffline` — nonaktifkan bot di grup ini (hanya di grup, owner-cuma)
 
 ---
 
-## 9. Struktur File
+## 9. Group Activation System (Fitur Baru)
+
+Bot sekarang mendukung system aktivasi per grup yang dikontrol oleh owner (`OWNER_NUMBERS`). Default state: semua grup **inactive** (bot hanya merespons jika diaktifkan tertulis).
+
+### Command untuk Owner:
+
+- **`/botonline`** — Aktifkan bot di grup ini
+  - Hanya bisa dipakai di grup (bukan chat pribadi)
+  - Hanya pemilik bot (`OWNER_NUMBERS`) yang bisa menjalankannya
+  - Pesan: "✅ Bot diaktifkan di grup *Nama*.. Sekarang bisa pakai command & terima /alert."
+
+- **`/botoffline`** — Nonaktifkan bot di grup ini
+  - Hanya bisa dipakai di grup (bukan chat pribadi)
+  - Hanya pemilik bot (`OWNER_NUMBERS`) yang bisa menjalankannya
+  - Pesan: "⛔ Bot dinonaktifkan di grup *Nama*.. Command & /alert tidak diproses."
+
+### Kelakuan saat Aktif:
+
+Setelah `/botonline` dipakai dalam sebuah grup:
+
+| Command Type | Allowed in Active Group? |
+|--------------|--------------------------|
+| Finance (`/masuk`, `/rekap`, etc.) | ✅ Ya |
+| Todo (`/todo`, `/listtodo`, `/done`) | ✅ Ya |
+| AI (`/ai kasih rekap`) | ✅ Ya |
+| Truly personal-only (`/alert`, `/listuser`, etc.) | ❌ Tidak (private-only) |
+| `/botonline`/`/botoffline` | ✅ Owner only |
+
+### Siapa yang Menerima `/alert` Broadcast?
+
+Admin yang kirim `/alert` sekarang mengirim ke:
+
+1. **Users yang terdaftar** tapi **BUKAN member grup mana pun yang aktif** → Private chat
+2. **Active groups only** → Kirim ke group dengan mention semua member
+
+Ini menghindari duplikasi: seorang user yang ada di database DAN di grup yang aktif hanya akan menerima notifikasi **SATU kali**:
+
+- Kalau user hanya di grup tanpa database → Menerima **group message** (dengan mention)
+- Kalau user hanya di database tanpa grup → Menerima **private message**
+- Kalau user di database DAN di grup aktif → **Group message only** (dengan mention)
+
+### Data Persistence:
+
+- Data grup tersimpan di sheet `GroupSettings` (GroupJID, GroupName, isActive, ActivatedBy, timestamps)
+- GroupJID (kolom A) adalah permanent identifier — tidak akan berubah meskipun grup mengubah namanya
+- Nama grup (kolom B) diupdate otomatis saat `/botonline`/`/botoffline` (refresh ke nama saat ini)
+- Bot memeriksa grup `isActive` per request command — tanpa activation permission, bot silent ignore
+
+### Penggunaan konteks file:
+
+- **`sheets.js`**: Tambah `createSheetIfNotExists("GroupSettings", ...)`,
+  `getGroupSetting()`, `setGroupActive()`, `getAllActiveGroups()`
+- **`index.js`**: Tambah activation check di `handleCommand()`, `/botonline`/`/botoffline` logic, fix `/alert` deduplication
+
+### Troubleshooting tip:
+
+Kalau grup tidak merespons command meskipun sudah `/botonline`:
+
+1. Cek GroupSettings group sheet - apakah isActive = FALSE?
+2. Pastikan owner menggunakan bot account yang sesuai dengan OWNER_NUMBERS di .env
+3. Restart bot jika ada error loading sheet: `docker restart bot-wa-running`
+4. Cek log bot (tanpa timeout) untuk menemukan error saat command di-handle
+
+---
+
+## 10. Struktur File
 
 ```
 bot-whatsapp-asy/
@@ -472,7 +544,7 @@ bot-whatsapp-asy/
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### QR code tidak muncul / loop "Koneksi terputus" terus
 
@@ -587,3 +659,101 @@ sudo apt install ffmpeg
    ffmpeg -codecs | grep webp
    ```
    Kalau tidak ada, compile ffmpeg dengan `--enable-libwebp` atau install package `ffmpeg` yang sudah include (biasanya sudah).
+
+
+---
+
+## 8b. Group Activation System (Fitur Baru)
+
+Bot sekarang mendukung system aktivasi per grup yang dikontrol oleh owner (`OWNER_NUMBERS`). Default state: semua grup **inactive** (bot hanya merespons jika diaktifkan tertulis).
+
+### Command untuk Owner:
+
+- **`/botonline`** — Aktifkan bot di grup ini
+  - Hanya bisa dipakai di grup (bukan chat pribadi)
+  - Hanya pemilik bot (`OWNER_NUMBERS`) yang bisa menjalankannya
+  - Pesan: "✅ Bot diaktifkan di grup *Nama*.. Sekarang bisa pakai command & terima /alert."
+
+- **`/botoffline`** — Nonaktifkan bot di grup ini
+  - Hanya bisa dipakai di grup (bukan chat pribadi)
+  - Hanya pemilik bot (`OWNER_NUMBERS`) yang bisa menjalankannya
+  - Pesan: "⛔ Bot dinonaktifkan di grup *Nama*.. Command & /alert tidak diproses."
+
+### Kelakuan saat Aktif:
+
+Setelah `/botonline` dipakai dalam sebuah grup:
+
+| Command Type | Allowed in Active Group? |
+|--------------|--------------------------|
+| Finance (`/masuk`, `/rekap`, etc.) | ✅ Ya |
+| Todo (`/todo`, `/listtodo`, `/done`) | ✅ Ya |
+| AI (`/ai kasih rekap`) | ✅ Ya |
+| Truly personal-only (`/alert`, `/listuser`, etc.) | ❌ Tidak (private-only) |
+| `/botonline`/`/botoffline` | ✅ Owner only |
+
+### Siapa yang Menerima `/alert` Broadcast?
+
+Admin yang kirim `/alert` sekarang mengirim ke:
+
+1. **Users yang terdaftar** tapi **BUKAN member grup mana pun yang aktif** → Private chat
+2. **Active groups only** → Kirim ke group dengan mention semua member
+
+Ini menghindari duplikasi: seorang user yang ada di database DAN di grup yang aktif hanya akan menerima notifikasi **SATU kali**:
+
+- Kalau user hanya di grup tanpa database → Menerima **group message** (dengan mention)
+- Kalau user hanya di database tanpa grup → Menerima **private message**
+- Kalau user di database DAN di grup aktif → **Group message only** (dengan mention)
+
+### Data Persistence:
+
+- Data grup tersimpan di sheet `GroupSettings` (GroupJID, GroupName, isActive, ActivatedBy, timestamps)
+- GroupJID (kolom A) adalah permanent identifier — tidak akan berubah meskipun grup mengubah namanya
+- Nama grup (kolom B) diupdate otomatis saat `/botonline`/`/botoffline` (refresh ke nama saat ini)
+- Bot memeriksa grup `isActive` per request command — tanpa activation permission, bot silent ignore
+
+### penggunaan kontek mother file:
+
+- **`sheets.js`**: Tambah `createSheetIfNotExists("GroupSettings", ...)`,
+  `getGroupSetting()`, `setGroupActive()`, `getAllActiveGroups()`
+- **`index.js`**: Tambah activation check di `handleCommand()`, `/botonline`/`/botoffline` logic, fix `/alert` deduplication
+
+### Troubleshooting tip:
+
+Kalau grup tidak merespons command meskipun sudah `/botonline`:
+
+1. Cek GroupSettings group sheet - apakah isActive = FALSE?
+2. Pastikan owner menggunakan bot account yang sesuai dengan OWNER_NUMBERS di .env
+3. Restart bot jika ada error loading sheet: `docker restart bot-wa-running`
+4. Cek log bot (tanpa timeout) untuk menemukan error saat command di-handle
+
+
+### Group Activation - Bot tidak merespons command meskipun sudah `/botonline`
+
+**Tanda:**
+- `/botonline` berhasil dikirim dan muncul pesan "✅ Bot diaktifkan..."
+- Command lain seperti `/help` atau `/rekap` tidak merespons sama sekali
+
+**Solusi:**
+
+1. **Cek GroupSettings sheet**:
+   - Buka spreadsheet bot
+   - Lihat sheet `GroupSettings` kolom A (`GroupJID`) — apakah sesuai dengan JID grup?
+   - Kolom C (`IsActive`) harus berisi `TRUE`
+
+2. **Restart bot** kalau ada error API selama command di-handle:
+   ```bash
+   # Docker:
+   sudo docker restart bot-wa-running
+
+   # Tanpa Docker:
+   pkill -f "node index.js"
+   node index.js
+   ```
+
+3. **Pastikan OWNER_NUMBERS di .env** cocok dengan account WA yang menjalankan `/botonline`
+
+4. **Cek error log** untuk melihat detail error (tidak timeout):
+   ```bash
+   # Docker:
+   sudo docker logs bot-wa-running | grep -A 5 "ERROR"
+   ```
