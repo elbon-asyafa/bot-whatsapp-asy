@@ -59,6 +59,9 @@ async function ensureBaseSheets() {
     "TotalKeluar",
     "Saldo",
   ]);
+  await createSheetIfNotExists("GroupSettings", [
+    "GroupJID", "GroupName", "IsActive", "ActivatedBy", "ActivatedAt", "DeactivatedBy", "DeactivatedAt"
+  ]);
 }
 
 // ==================== USER REGISTRY ====================
@@ -539,6 +542,72 @@ async function getNamaKontak(jid) {
   return (jid || "").split("@")[0]; // fallback: nomor mentah
 }
 
+async function getGroupSetting(groupJid) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "GroupSettings!A:G",
+  });
+  const rows = res.data.values || [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row[0] === groupJid) {
+      return {
+        rowIndex: i + 1,
+        groupJid: row[0],
+        groupName: row[1],
+        isActive: row[2] === 'TRUE',
+        activatedBy: row[3],
+        activatedAt: row[4],
+        deactivatedBy: row[5],
+        deactivatedAt: row[6],
+      };
+    }
+  }
+  return null;
+}
+
+async function setGroupActive(groupJid, groupName, ownerJid, isActive) {
+  const existing = await getGroupSetting(groupJid);
+  const now = new Date().toISOString();
+  const row = [
+    groupJid,
+    groupName,
+    isActive ? 'TRUE' : 'FALSE',
+    isActive ? ownerJid : (existing?.activatedBy || ''),
+    isActive ? now : (existing?.activatedAt || ''),
+    isActive ? '' : ownerJid,
+    isActive ? '' : now,
+  ];
+  if (existing) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `GroupSettings!A${existing.rowIndex}:G${existing.rowIndex}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [row] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'GroupSettings!A:G',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] },
+    });
+  }
+}
+
+async function getAllActiveGroups() {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "GroupSettings!A:G",
+  });
+  const rows = res.data.values || [];
+  return rows
+    .slice(1)
+    .filter(([, , isActive]) => isActive === 'TRUE')
+    .map(([groupJid, groupName]) => ({ groupJid, groupName }));
+}
+
 module.exports = {
   ensureBaseSheets,
   daftarUser,
@@ -563,4 +632,7 @@ module.exports = {
   stopAlarmBerbunyi,
   simpanKontak,
   getNamaKontak,
+  getGroupSetting,
+  setGroupActive,
+  getAllActiveGroups,
 };

@@ -18,6 +18,11 @@ process.on("uncaughtException", (err) => {
 });
 
 const sheets = require("./sheets");
+const { 
+  getGroupSetting, 
+  setGroupActive, 
+  getAllActiveGroups 
+} = require("./sheets");
 const { tanyaAI, prosesPerintahBot, analisisStruk } = require("./gemini");
 const { generateStaticBrat, generateAnimatedBrat } = require("./brat-advanced");
 const XLSX = require("xlsx");
@@ -397,15 +402,27 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
   const args = rest.join(" ");
   const cmd = command.toLowerCase();
 
-  // Command Akun/Keuangan/To-Do/Admin cuma boleh di chat pribadi, nggak di grup
-    const PERSONAL_ONLY_COMMANDS = [
-      "/daftarbot", "/deleteuser",
-      "/masuk", "/keluar", "/rekap", "/riwayat", "/unduhrekap",
-      "/todo", "/listtodo", "/done",
-      "/listuser", "/adminhapususer", "/testreminder",
-      "/alert",
-    ];
-  if (isGroup && PERSONAL_ONLY_COMMANDS.includes(cmd)) {
+  const ACTIVATION_CMDS = ['/botonline', '/botoffline'];
+
+  // Check group activation FIRST
+  if (isGroup && !ACTIVATION_CMDS.includes(cmd)) {
+    const groupSetting = await getGroupSetting(sender);
+    if (!groupSetting || !groupSetting.isActive) {
+      return; // Silent ignore
+    }
+  }
+
+  if (isGroup && ACTIVATION_CMDS.includes(cmd) && !isOwner(authorId)) {
+    return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
+  }
+
+  // Commands that are NEVER allowed in groups (even when active)
+  const TRULY_PERSONAL_ONLY = [
+    "/daftarbot", "/deleteuser",
+    "/listuser", "/adminhapususer", "/testreminder",
+    "/alert",
+  ];
+  if (isGroup && TRULY_PERSONAL_ONLY.includes(cmd)) {
     return sock.sendMessage(sender, {
       text: "Command ini cuma bisa dipakai di chat pribadi ke bot, bukan di grup.",
     });
@@ -447,7 +464,9 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
           `/adminhapususer [nama] — hapus akun user manapun (hanya chat pribadi)\n` +
           `/testreminder — tes kirim reminder sekarang juga (hanya chat pribadi)\n` +
           `/ping [text] — tag semua member grup (hanya di grup)\n` +
-          `/alert [text] — kirim info ke semua user & grup\n`
+          `/alert [text] — kirim info ke semua user & grup aktif\n` +
+          `/botonline — aktifkan bot di grup ini (hanya di grup)\n` +
+          `/botoffline — nonaktifkan bot di grup ini (hanya di grup)\n`
         : "";
 
     const bagianPersonal = isGroup
@@ -507,6 +526,28 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         bagianAdmin +
         `\n\n/help — tampilkan pesan ini`,
     });
+  }
+
+  if (cmd === "/botonline") {
+    if (!isGroup) return sock.sendMessage(sender, { text: "Command ini cuma buat grup." });
+    if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Cuma pemilik bot." });
+
+    const metadata = await sock.groupMetadata(sender).catch(() => null);
+    const groupName = metadata?.subject || 'Unknown';
+
+    await setGroupActive(sender, groupName, authorId, true);
+    return sock.sendMessage(sender, { text: `✅ Bot diaktifkan di grup *${groupName}*. Sekarang bisa pakai command & terima /alert.` });
+  }
+
+  if (cmd === "/botoffline") {
+    if (!isGroup) return sock.sendMessage(sender, { text: "Command ini cuma buat grup." });
+    if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Cuma pemilik bot." });
+
+    const metadata = await sock.groupMetadata(sender).catch(() => null);
+    const groupName = metadata?.subject || 'Unknown';
+
+    await setGroupActive(sender, groupName, authorId, false);
+    return sock.sendMessage(sender, { text: `⛔ Bot dinonaktifkan di grup *${groupName}*. Command & /alert tidak diproses.` });
   }
 
 
@@ -593,7 +634,14 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
             exec(
               `${pathYtDlp()} -x --audio-format mp3 --extract-audio --audio-quality 0 -o "${outputPath}" "${url}"`,
               { maxBuffer: 1024 * 1024 * 100 },
-              (err) => (err ? reject(err) : resolve())
+              (err, stdout, stderr) => {
+                if (err) {
+                  console.error("[DOWNLOAD MP3] stderr:", stderr);
+                  reject(new Error(`${err.message} | stderr: ${stderr}`));
+                } else {
+                  resolve();
+                }
+              }
             );
           });
         } else {
@@ -601,7 +649,14 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
             exec(
               `${pathYtDlp()} -f "best[ext=mp4]/best" --max-filesize 60M -o "${outputPath}" "${url}"`,
               { maxBuffer: 1024 * 1024 * 50 },
-              (err) => (err ? reject(err) : resolve())
+              (err, stdout, stderr) => {
+                if (err) {
+                  console.error("[DOWNLOAD MP4] stderr:", stderr);
+                  reject(new Error(`${err.message} | stderr: ${stderr}`));
+                } else {
+                  resolve();
+                }
+              }
             );
           });
         }
@@ -1047,33 +1102,43 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
       let kirimKeUser = 0;
       let kirimKeGrup = 0;
 
-      // Kirim ke semua user
-        for (const user of users) {
+      // 1. Fetch all groups ONCE, build Set of ALL participant JIDs
+      const semuaGrup = await sock.groupFetchAllParticipating();
+      const allGroupJids = new Set();
+      for (const grup of Object.values(semuaGrup)) {
+        for (const p of grup.participants) {
+          allGroupJids.add(p.id);
+        }
+      }
+
+      // 2. Send to DB users NOT in any group (private only)
+      for (const user of users) {
+        if (!allGroupJids.has(user.jid)) {
           try {
--            await sock.sendMessage(user.jid, { text: teksAlert });
-+            console.log(`[ALERT] Mengirim ke ${user.jid}`);
-+            await sock.sendMessage(user.jid, { text: teksAlert });
+            await sock.sendMessage(user.jid, { text: teksAlert });
             kirimKeUser++;
           } catch (e) {
             console.error(`[ALERT] Gagal kirim ke ${user.jid}: ${e.message}`);
           }
         }
+      }
 
-      // Kirim ke semua grup
-      try {
-        const semuaGrup = await sock.groupFetchAllParticipating();
-        const daftarGrup = Object.values(semuaGrup);
-        for (const grup of daftarGrup) {
-          const participantJids = grup.participants.map((p) => p.id);
+      // 3. Send to ACTIVE groups only (with mentions)
+      for (const grup of Object.values(semuaGrup)) {
+        const groupSetting = await getGroupSetting(grup.id);
+        if (!groupSetting || !groupSetting.isActive) continue;
+
+        const participantJids = grup.participants.map(p => p.id);
+        try {
           await sock.sendMessage(grup.id, { text: teksAlert, mentions: participantJids });
           kirimKeGrup++;
+        } catch (e) {
+          console.error(`[ALERT] Gagal kirim ke grup ${grup.id}: ${e.message}`);
         }
-      } catch (e) {
-        console.error(`[ALERT] Gagal kirim ke grup: ${e.message}`);
       }
 
       return sock.sendMessage(sender, {
-        text: `Alert terkirim:\n${kirimKeUser} user\n${kirimKeGrup} grup`,
+        text: `Alert terkirim:\n${kirimKeUser} user (private)\n${kirimKeGrup} grup aktif`,
       });
     }
 

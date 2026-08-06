@@ -6,6 +6,7 @@ node_modules/
 .env.local
 .env.*.local
 service-account.json
+PROJECT_CONTEXT.md
 
 # WhatsApp Session Data & Temp files
 auth_session/
