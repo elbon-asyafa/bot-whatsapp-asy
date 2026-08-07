@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const sheets = require("./sheets");
 require("dotenv").config();
 
 const SYSTEM_INSTRUCTION = `
@@ -89,19 +90,19 @@ const tools = [
 ];
 
 const chatModel = genAI.getGenerativeModel({
-  model: "gemini-3.5-flash-lite",
+  model: "gemini-3.1-flash-lite",
   tools,
   systemInstruction: SYSTEM_INSTRUCTION,
 });
 
 const plainModel = genAI.getGenerativeModel({
-  model: "gemini-3.5-flash-lite",
+  model: "gemini-3.1-flash-lite",
   systemInstruction: SYSTEM_INSTRUCTION,
 });
 
 // Dipanggil buat baca foto struk belanja, extract nominal + keterangan otomatis
 async function analisisStruk(base64Data, mimeType) {
-  const visionModel = genAI.getGenerativeModel({ model: "gemini-3.5-flash-lite" });
+  const visionModel = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
 
   const prompt =
     `Ini foto struk/nota belanja. Baca dan ekstrak informasinya. ` +
@@ -125,20 +126,49 @@ async function analisisStruk(base64Data, mimeType) {
   }
 }
 
+// Dipanggil buat analisis gambar umum (multimodal vision)
+async function analisisGambar(base64Data, mimeType, prompt = "") {
+  const visionModel = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
+
+  const finalPrompt = prompt ||
+    "Jelaskan gambar ini secara detail dalam bahasa Indonesia. Apa yang terlihat, konteksnya, dan detail penting lainnya.";
+
+  const result = await visionModel.generateContent([
+    { inlineData: { mimeType, data: base64Data } },
+    { text: finalPrompt },
+  ]);
+
+  return bersihkanFormat(result.response.text());
+}
+
 // Dipanggil lewat /ai — Gemini bisa milih manggil fungsi bot (executors) atau jawab langsung
-async function prosesPerintahBot(pertanyaan, executors) {
-  const result = await chatModel.generateContent(pertanyaan);
+async function prosesPerintahBot(pertanyaan, executors, userJID) {
+  // Ambil riwayat percakapan user
+  const past = await sheets.getAIHistory(userJID, 10);
+  const historyText = past.map(entry => `${entry.role === "user" ? "User" : "AI"}: ${entry.message}`).join("\n");
+  const fullPrompt = historyText ? `${historyText}\nUser: ${pertanyaan}` : pertanyaan;
+
+  const result = await chatModel.generateContent(fullPrompt);
   const response = result.response;
   const calls = response.functionCalls();
 
   if (!calls || calls.length === 0) {
-    return { text: bersihkanFormat(response.text()), executed: null };
+    const finalText = bersihkanFormat(response.text());
+    // Simpan ke history
+    await sheets.addToAIHistory(userJID, "user", pertanyaan);
+    await sheets.addToAIHistory(userJID, "model", finalText);
+    await sheets.trimAIHistory(userJID, 20);
+    return { text: finalText, executed: null };
   }
 
   const call = calls[0];
   const executor = executors[call.name];
   if (!executor) {
-    return { text: "Aku ngerti maksudnya, tapi belum bisa lakuin itu.", executed: null };
+    const finalText = "Aku ngerti maksudnya, tapi belum bisa lakuin itu.";
+    await sheets.addToAIHistory(userJID, "user", pertanyaan);
+    await sheets.addToAIHistory(userJID, "model", finalText);
+    await sheets.trimAIHistory(userJID, 20);
+    return { text: finalText, executed: null };
   }
 
   let functionResult;
@@ -149,13 +179,11 @@ async function prosesPerintahBot(pertanyaan, executors) {
   }
 
   // Kirim hasil eksekusi balik ke Gemini biar dijawab natural ke user
-  // Penting: pakai konten ASLI dari response.candidates (bukan disusun ulang manual),
-  // karena model terbaru butuh thought_signature yang cuma ada di response asli.
   const modelContent = response.candidates[0].content;
 
   const chat = chatModel.startChat({
     history: [
-      { role: "user", parts: [{ text: pertanyaan }] },
+      { role: "user", parts: [{ text: fullPrompt }] },
       modelContent,
     ],
   });
@@ -169,7 +197,13 @@ async function prosesPerintahBot(pertanyaan, executors) {
     },
   ]);
 
-  return { text: bersihkanFormat(followUp.response.text()), executed: call.name };
+  const finalText = bersihkanFormat(followUp.response.text());
+  // Simpan ke history
+  await sheets.addToAIHistory(userJID, "user", pertanyaan);
+  await sheets.addToAIHistory(userJID, "model", finalText);
+  await sheets.trimAIHistory(userJID, 20);
+
+  return { text: finalText, executed: call.name };
 }
 
 // Dipanggil buat obrolan bebas biasa (fallback / non-command context)
@@ -185,4 +219,4 @@ function bersihkanFormat(teks) {
     .trim();
 }
 
-module.exports = { prosesPerintahBot, tanyaAI, analisisStruk };
+module.exports = { prosesPerintahBot, tanyaAI, analisisStruk, analisisGambar };

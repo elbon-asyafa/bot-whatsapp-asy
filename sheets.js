@@ -62,6 +62,12 @@ async function ensureBaseSheets() {
   await createSheetIfNotExists("GroupSettings", [
     "GroupJID", "GroupName", "IsActive", "ActivatedBy", "ActivatedAt", "DeactivatedBy", "DeactivatedAt"
   ]);
+  await createSheetIfNotExists("BotSettings", [
+    "SettingKey", "SettingValue", "UpdatedAt"
+  ]);
+  await createSheetIfNotExists("AI_History", [
+    "UserJID", "Timestamp", "Role", "Message"
+  ]);
 }
 
 // ==================== USER REGISTRY ====================
@@ -167,6 +173,129 @@ async function setReminderUser(jid, aktif) {
     requestBody: { values: [[aktif ? "TRUE" : "FALSE"]] },
   });
   return true;
+}
+
+// ==================== GLOBAL REMINDER ====================
+
+async function getGlobalReminderStatus() {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "BotSettings!A:C",
+    });
+    const rows = res.data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] === "global_reminder_enabled") {
+        return rows[i][1] !== "FALSE";
+      }
+    }
+    return true; // default enabled
+  } catch (e) {
+    return true;
+  }
+}
+
+async function setGlobalReminderStatus(enabled) {
+  await ensureBaseSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "BotSettings!A:C",
+  });
+  const rows = res.data.values || [];
+  const rowIdx = rows.findIndex((r) => r[0] === "global_reminder_enabled");
+  const now = new Date().toISOString();
+  const value = enabled ? "TRUE" : "FALSE";
+  if (rowIdx >= 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `BotSettings!A${rowIdx + 1}:C${rowIdx + 1}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [["global_reminder_enabled", value, now]] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "BotSettings!A:C",
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [["global_reminder_enabled", value, now]] },
+    });
+  }
+}
+
+// ==================== AI HISTORY ====================
+
+async function addToAIHistory(userJID, role, message) {
+  await ensureBaseSheets();
+  const timestamp = new Date().toISOString();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: "AI_History!A:D",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [[userJID, timestamp, role, message]] },
+  });
+}
+
+async function getAIHistory(userJID, limit = 10) {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "AI_History!A:D",
+    });
+    const rows = res.data.values || [];
+    const userRows = rows
+      .slice(1)
+      .filter((r) => r[0] === userJID)
+      .map(([jid, timestamp, role, message]) => ({ timestamp, role, message }))
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, limit)
+      .reverse(); // chronological
+    return userRows;
+  } catch (e) {
+    return [];
+  }
+}
+
+async function trimAIHistory(userJID, max = 20) {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "AI_History!A:D",
+    });
+    const rows = res.data.values || [];
+    const userIndices = [];
+    rows.forEach((r, idx) => {
+      if (idx > 0 && r[0] === userJID) userIndices.push(idx);
+    });
+    if (userIndices.length > max) {
+      const toDelete = userIndices.slice(0, userIndices.length - max);
+      // delete from bottom up to keep indices valid
+      const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+      const historySheet = meta.data.sheets.find(s => s.properties.title === "AI_History");
+      if (!historySheet) return;
+      const requests = toDelete
+        .sort((a, b) => b - a)
+        .map(idx => ({
+          deleteDimension: {
+            range: {
+              sheetId: historySheet.properties.sheetId,
+              dimension: "ROWS",
+              startIndex: idx,
+              endIndex: idx + 1,
+            },
+          },
+        }));
+      if (requests.length > 0) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SPREADSHEET_ID,
+          requestBody: { requests },
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[TRIM AI HISTORY] Error:", e.message);
+  }
 }
 
 // ==================== KEUANGAN ====================
@@ -294,6 +423,47 @@ async function tandaiSelesai(nama, nomorUrutHariIni) {
     requestBody: { values: [["Done"]] },
   });
   return target;
+}
+
+async function deleteCompletedTodos(nama) {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `Todo_${nama}!A:C`,
+    });
+    const rows = res.data.values || [];
+    if (rows.length <= 1) return; // only header
+
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const todoSheet = meta.data.sheets.find(s => s.properties.title === `Todo_${nama}`);
+    if (!todoSheet) return;
+
+    const requests = [];
+    // iterate from bottom to top
+    for (let i = rows.length - 1; i >= 1; i--) {
+      const [tanggal, task, status] = rows[i];
+      if (status === "Done") {
+        requests.push({
+          deleteDimension: {
+            range: {
+              sheetId: todoSheet.properties.sheetId,
+              dimension: "ROWS",
+              startIndex: i,
+              endIndex: i + 1,
+            },
+          },
+        });
+      }
+    }
+    if (requests.length > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: { requests },
+      });
+    }
+  } catch (e) {
+    // sheet may not exist yet
+  }
 }
 
 // ==================== RIWAYAT ====================
@@ -614,12 +784,15 @@ module.exports = {
   getNamaByJid,
   getAllUsers,
   setReminderUser,
+  getGlobalReminderStatus,
+  setGlobalReminderStatus,
   catatTransaksi,
   rekapHariIni,
   rekapSemuaHariIniDanSimpan,
   tambahTodo,
   getTodoHariIni,
   tandaiSelesai,
+  deleteCompletedTodos,
   ambilDataUntukExport,
   ambilRiwayat,
   hapusUser,
@@ -635,4 +808,7 @@ module.exports = {
   getGroupSetting,
   setGroupActive,
   getAllActiveGroups,
+  addToAIHistory,
+  getAIHistory,
+  trimAIHistory,
 };

@@ -21,9 +21,12 @@ const sheets = require("./sheets");
 const { 
   getGroupSetting, 
   setGroupActive, 
-  getAllActiveGroups 
+  getAllActiveGroups,
+  getGlobalReminderStatus,
+  setGlobalReminderStatus,
+  deleteCompletedTodos,
 } = require("./sheets");
-const { tanyaAI, prosesPerintahBot, analisisStruk } = require("./gemini");
+const { tanyaAI, prosesPerintahBot, analisisStruk, analisisGambar } = require("./gemini");
 const { generateStaticBrat, generateAnimatedBrat } = require("./brat-advanced");
 const XLSX = require("xlsx");
 const { Sticker, StickerTypes } = require("wa-sticker-formatter");
@@ -269,7 +272,7 @@ async function startBot() {
       : null;
 
     try {
-      await handleCommand(sock, sender, text.trim(), nomorAsli, authorId, isGroup, mentionedJid, pushName, quotedInfo);
+      await handleCommand(sock, sender, text.trim(), nomorAsli, authorId, isGroup, mentionedJid, pushName, quotedInfo, msg);
       console.log(`[SELESAI] Command dari ${authorId} udah diproses & dibales.`);
     } catch (err) {
       console.error(`[ERROR] Gagal proses command dari ${authorId}:`, err);
@@ -397,7 +400,7 @@ async function handleStiker(sock, sender, authorId, msg, caption) {
   return sock.sendMessage(sender, { sticker: stickerBuffer });
 }
 
-async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, mentionedJid, pushName, quotedInfo) {
+async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, mentionedJid, pushName, quotedInfo, msg) {
   const [command, ...rest] = text.split(" ");
   const args = rest.join(" ");
   const cmd = command.toLowerCase();
@@ -459,32 +462,35 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
 
   if (cmd === "/help") {
       const bagianAdmin = isOwner(authorId)
-        ? `\n\n*Admin* (khusus pemilik bot)\n` +
-          `/listuser — lihat semua user terdaftar (hanya chat pribadi)\n` +
-          `/adminhapususer [nama] — hapus akun user manapun (hanya chat pribadi)\n` +
-          `/testreminder — tes kirim reminder sekarang juga (hanya chat pribadi)\n` +
-          `/ping [text] — tag semua member grup (hanya di grup)\n` +
-          `/alert [text] — kirim info ke semua user & grup aktif\n` +
-          `/botonline — aktifkan bot di grup ini (hanya di grup)\n` +
-          `/botoffline — nonaktifkan bot di grup ini (hanya di grup)\n`
+        ? `\n\n*Admin (khusus pemilik bot)*\n` +
+          `*/listuser* — lihat semua user terdaftar (hanya chat pribadi)\n` +
+          `*/adminhapususer [nama]* — hapus akun user manapun (hanya chat pribadi)\n` +
+          `*/testreminder* — tes kirim reminder sekarang juga (hanya chat pribadi)\n` +
+          `*/ping [text]* — tag semua member grup (hanya di grup)\n` +
+          `*/alert [text]* — kirim info ke semua user & grup aktif\n` +
+          `*/botonline* — aktifkan bot di grup ini (hanya di grup)\n` +
+          `*/botoffline* — nonaktifkan bot di grup ini (hanya di grup)\n` +
+          `*/allreminderon* — nyalain reminder global untuk semua user\n` +
+          `*/allreminderoff* — matiin reminder global untuk semua user\n` +
+          `*/allreminder* — cek status reminder global\n`
         : "";
 
     const bagianPersonal = isGroup
       ? ""
-      : `*Akun*\n` +
-        `/daftarbot [nama] — daftar user baru (wajib sebelum command lain)\n` +
-        `/deleteuser — hapus akun & semua data kamu (butuh konfirmasi)\n\n` +
-        `*Keuangan*\n` +
-        `/masuk [nominal] [keterangan] — catat pemasukan\n` +
-        `/keluar [nominal] [keterangan] — catat pengeluaran\n` +
-        `/rekap — ringkasan keuangan kamu hari ini\n` +
-        `/riwayat [jumlah] — lihat transaksi terakhir (default 10)\n` +
-        `/unduhrekap — download Excel data kamu\n` +
-        `Kirim foto struk + caption /struk — otomatis dibaca & dicatat\n\n` +
-        `*To-Do List*\n` +
-        `/todo [task] — tambah tugas\n` +
-        `/listtodo — lihat to-do hari ini\n` +
-        `/done [nomor] — tandai tugas selesai\n\n`;
+      : `*1.) Akun*\n` +
+        `*/daftarbot [nama]* — wajib kalau mau pakai bot\n` +
+        `*/deleteuser* — hapus akun kamu dari bot\n\n` +
+        `*2.) Keuangan*\n` +
+        `*/masuk [nominal] [ket]* — catat pemasukan\n` +
+        `*/keluar [nominal] [ket]* — catat pengeluaran\n` +
+        `*/rekap* — rekap keuangan kamu hari ini\n` +
+        `*/riwayat [jumlah]* — lihat transaksi terakhir (default 10)\n` +
+        `*/unduhrekap* — download excel data kamu\n` +
+        `*/struk* — foto struk/nota pembelian (otomatis tercatat)\n\n` +
+        `*3.) To-Do List*\n` +
+        `*/todo [tugas]* — tambah tugas\n` +
+        `*/listtodo* — lihat to-do hari ini\n` +
+        `*/done [nomor]* — tandai tugas selesai\n\n`;
 
     const catatanGrup = isGroup
       ? `_Command Akun/Keuangan/To-Do/Admin cuma bisa dipake di chat pribadi ke bot._\n\n`
@@ -501,30 +507,31 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
       text:
         `Daftar Command Bot\n\n` +
         bagianPersonal +
-        `*Reminder & Alarm*\n` +
-        `/reminder on / off — nyala/matiin reminder kamu\n` +
-        `/reminder — cek status reminder kamu\n` +
-        `/alarm [jam] [pesan] — set alarm sekali jalan, contoh: /alarm 20:20 mau coding\n` +
-        `/stopalarm — matiin alarm yang lagi bunyi (spam tiap menit sampai di-stop)\n` +
-        `/listalarm — lihat alarm aktif kamu\n` +
-        `/hapusalarm [nomor] — hapus alarm\n\n` +
-        `*Media*\n` +
-        `Kirim foto + caption /stiker — convert jadi stiker WA\n` +
-        `Kirim foto + caption /stiker [teks] — stiker + teks meme, contoh: /stiker kecewa ringan\n` +
-        `Kirim foto + caption /stiker [atas]|[bawah] — teks di atas & bawah sekaligus\n` +
-        `/download [link] [format] — download video/audio YouTube/TikTok (format: mp3/mp4, default mp4, video maks 60MB)\n\n` +
-        `*Utilitas*\n` +
-          `/kirim [nomor] [pesan] — kirim pesan lewat bot ke nomor lain\n` +
-          `Reply stiker + /kirim [nomor] — forward stiker itu ke nomor lain\n` +
-          `/brat [teks] — bikin stiker brat statis (Arial Narrow, blur 8.4px)\n` +
-          `/bratvid [teks] — bikin stiker brat animasi kata per kata\n\n` +
-        `*AI Assistant*\n` +
-        `/ai [perintah/pertanyaan] — ngobrol bebas atau suruh bot ngapa-ngapain\n` +
-        contohAI +
-        `\n` +
+        `*4.) Reminder & Alarm*\n` +
+        `*/reminder [on/off]* — nyala/matiin reminder kamu\n` +
+        `*/reminder* — cek status reminder kamu\n` +
+        `*/alarm [jam] [pesan]* — set alarm, _contoh: /alarm 20:20 mau coding_\n` +
+        `*/stopalarm* — matiin alarm yang lagi bunyi\n` +
+        `*/listalarm — lihat alarm aktif kamu\n` +
+        `*/hapusalarm [nomor] — hapus alarm\n\n` +
+        `*5.) Media*\n` +
+        `*/stiker* - ubah foto jadi stiker\n` +
+        `*/stiker [text]* - ubah foto jadi stiker dengan text\n` +
+        `*/stiker [text atas]|[text bawah]* - ubah foto jadi stiker dengan text atas bawah\n` +
+        `*/download [link] [format]* — download video/audio youtube/tiktok (format: mp4/mp3, max 60mb)\n` +
+        `_(contoh: /download https://tiktok..... mp4)_\n\n` +
+        `*6.) Utilitas*\n` +
+        `*/kirim [nomor] [pesan]* — kirim pesan lewat bot ke nomor lain\n` +
+        `*reply stiker + /kirim [nomor]* — kirim stiker itu ke nomor lain\n` +
+        `*/brat [teks]* — bikin stiker brat\n` +
+        `*/bratvid [teks]* — bikin stiker brat bergerak\n\n` +
+        `*7.) AI Assistant*\n` +
+        `*/ai [perintah/pertanyaan]* — suruh/tanya bot\n` +
+        `_contoh: "/ai gimana rekapku hari ini?"_\n` +
+        `_contoh: "/ai ibu kota indonesia apa?"_\n\n` +
         catatanGrup +
         bagianAdmin +
-        `\n\n/help — tampilkan pesan ini`,
+        `\n/help — tampilkan pesan ini`,
     });
   }
 
@@ -550,6 +557,24 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
     return sock.sendMessage(sender, { text: `⛔ Bot dinonaktifkan di grup *${groupName}*. Command & /alert tidak diproses.` });
   }
 
+  // Global reminder commands (admin only)
+  if (cmd === "/allreminderon") {
+    if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
+    await setGlobalReminderStatus(true);
+    return sock.sendMessage(sender, { text: "✅ Reminder global dinyalakan untuk semua user." });
+  }
+
+  if (cmd === "/allreminderoff") {
+    if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
+    await setGlobalReminderStatus(false);
+    return sock.sendMessage(sender, { text: "⛔ Reminder global dimatikan untuk semua user." });
+  }
+
+  if (cmd === "/allreminder") {
+    if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
+    const status = await getGlobalReminderStatus();
+    return sock.sendMessage(sender, { text: `Status reminder global: ${status ? "NYALA" : "MATI"}` });
+  }
 
   // command lain butuh: (1) diizinkan admin, (2) udah daftar
   if (!bolehAksesFitur(authorId)) {
@@ -861,6 +886,8 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
     }
 
     case "/listtodo": {
+      // Hapus todo yang sudah Done sebelum menampilkan
+      await sheets.deleteCompletedTodos(nama);
       const todos = await sheets.getTodoHariIni(nama);
       if (todos.length === 0) {
         return sock.sendMessage(sender, {
@@ -897,6 +924,16 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
     }
 
     case "/ai": {
+      // Handle image + /ai caption
+      if (msg?.message?.imageMessage) {
+        const buffer = await downloadMediaMessage(msg, "buffer", {});
+        const base64 = buffer.toString("base64");
+        const mime = msg.message.imageMessage.mimetype || "image/jpeg";
+        const prompt = args.trim() || "";
+        const hasil = await analisisGambar(base64, mime, prompt);
+        return sock.sendMessage(sender, { text: `🤖 ${hasil}` });
+      }
+
       if (!args) {
         return sock.sendMessage(sender, {
           text: 'Contoh: "/ai catet keluar 15000 buat makan siang" atau "/ai gimana rekapku hari ini"',
@@ -927,7 +964,7 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         },
       };
 
-      const hasil = await prosesPerintahBot(args, executors);
+      const hasil = await prosesPerintahBot(args, executors, authorId);
       return sock.sendMessage(sender, { text: `🤖 ${hasil.text}` });
     }
 
@@ -1180,6 +1217,10 @@ async function targetReminderUsers() {
 }
 
 async function kirimRekapBerkala(sock) {
+  // Cek global reminder status
+  const globalEnabled = await sheets.getGlobalReminderStatus();
+  if (!globalEnabled) return;
+  
   try {
     const users = await targetReminderUsers();
     console.log(`[REMINDER] Kirim rekap berkala ke ${users.length} user (yang reminder-nya nyala)...`);
@@ -1200,6 +1241,10 @@ async function kirimRekapBerkala(sock) {
 }
 
 async function kirimReminderTodo(sock) {
+  // Cek global reminder status
+  const globalEnabled = await sheets.getGlobalReminderStatus();
+  if (!globalEnabled) return;
+  
   try {
     const users = await targetReminderUsers();
     console.log(`[REMINDER] Cek to-do pending buat ${users.length} user (yang reminder-nya nyala)...`);
@@ -1223,6 +1268,7 @@ async function kirimReminderTodo(sock) {
 }
 
 async function cekAlarmBerkala(sock) {
+  // Alarm tidak dipengaruhi oleh global reminder status (alarm is user-specific)
   try {
     const now = waktuSekarangJakarta();
     const alarms = await sheets.getAlarmPerluDicek();
