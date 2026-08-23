@@ -8,6 +8,7 @@ const {
 } = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
 const pino = require("pino");
+const ffmpeg = require("fluent-ffmpeg");
 require("dotenv").config();
 
 process.on("unhandledRejection", (err) => {
@@ -17,23 +18,11 @@ process.on("uncaughtException", (err) => {
   console.error("UNCAUGHT EXCEPTION:", err);
 });
 
-const express = require("express");
-const app = express();
-const PORT = process.env.PORT || 3000;
-app.get("/", (req, res) => {
-  res.send("Bot WhatsApp Aktif!");
-});
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server Express mendengarkan di port ${PORT}`);
-});
-
 const sheets = require("./sheets");
 const { 
   getGroupSetting, 
   setGroupActive, 
   getAllActiveGroups,
-  getGlobalReminderStatus,
-  setGlobalReminderStatus,
   deleteCompletedTodos,
 } = require("./sheets");
 const { tanyaAI, prosesPerintahBot, analisisStruk, analisisGambar } = require("./gemini");
@@ -44,6 +33,41 @@ const Jimp = require("jimp");
 const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+
+function isTikTokUrl(url) {
+  return /tiktok\.com|vt\.tiktok|vm\.tiktok|tiktokv\.com/i.test(url);
+}
+
+// Fallback khusus TikTok, dipake kalau yt-dlp gagal (misal lagi ada bug ekstraktor upstream
+// kayak "Unable to extract universal data for rehydration"). Pakai API publik tikwm.com buat
+// ambil link video tanpa watermark, terus didownload manual — di luar yt-dlp sepenuhnya.
+async function downloadTiktokFallback(url, outputPath) {
+  const apiRes = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`);
+  const json = await apiRes.json();
+  if (json.code !== 0 || !json.data) {
+    throw new Error(`Fallback API TikTok gagal: ${json.msg || "respons nggak valid dari API"}`);
+  }
+  const playUrl = json.data.play || json.data.hdplay;
+  if (!playUrl) throw new Error("Fallback API TikTok gagal: nggak ada link video di respons.");
+
+  const videoRes = await fetch(playUrl);
+  if (!videoRes.ok) throw new Error(`Fallback API TikTok gagal ambil videonya (HTTP ${videoRes.status}).`);
+  const buf = Buffer.from(await videoRes.arrayBuffer());
+  fs.writeFileSync(outputPath, buf);
+}
+
+// Convert video hasil fallback jadi mp3 (dipake kalau user minta format mp3 tapi yt-dlp-nya gagal)
+function convertToMp3(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .noVideo()
+      .audioCodec("libmp3lame")
+      .audioQuality(0)
+      .save(outputPath)
+      .on("end", resolve)
+      .on("error", reject);
+  });
+}
 
 // Cari yt-dlp: prioritas file di folder project (yt-dlp.exe), fallback ke command global di PATH
 function pathYtDlp() {
@@ -248,6 +272,21 @@ async function startBot() {
             console.error(`[ERROR] Gagal bikin stiker buat ${authorId}:`, err);
             await sock.sendMessage(sender, {
               text: "⚠️ Gagal bikin stiker. Coba foto lain.",
+            });
+          }
+          return;
+        }
+
+        // Foto dengan caption /ai: analisis gambar pakai AI vision
+        if (msg.message.imageMessage && captionLower.startsWith("/ai")) {
+          console.log(`[MASUK] ${authorId} -> [foto buat /ai]`);
+          try {
+            await handleCommand(sock, sender, caption.trim(), nomorAsli, authorId, isGroup, mentionedJid, pushName, null, msg);
+            console.log(`[SELESAI] Analisis gambar /ai buat ${authorId} udah dibales.`);
+          } catch (err) {
+            console.error(`[ERROR] Gagal analisis gambar /ai dari ${authorId}:`, err);
+            await sock.sendMessage(sender, {
+              text: "⚠️ Gagal analisis gambarnya. Coba lagi ya.",
             });
           }
           return;
@@ -480,9 +519,7 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
           `*/alert [text]* — kirim info ke semua user & grup aktif\n` +
           `*/botonline* — aktifkan bot di grup ini (hanya di grup)\n` +
           `*/botoffline* — nonaktifkan bot di grup ini (hanya di grup)\n` +
-          `*/allreminderon* — nyalain reminder global untuk semua user\n` +
-          `*/allreminderoff* — matiin reminder global untuk semua user\n` +
-          `*/allreminder* — cek status reminder global\n`
+          `*/allreminder [on/off]* — nyalain/matiin reminder buat semua user sekaligus, tanpa argumen buat cek status\n`
         : "";
 
     const bagianPersonal = isGroup
@@ -567,23 +604,26 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
     return sock.sendMessage(sender, { text: `⛔ Bot dinonaktifkan di grup *${groupName}*. Command & /alert tidak diproses.` });
   }
 
-  // Global reminder commands (admin only)
-  if (cmd === "/allreminderon") {
-    if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
-    await setGlobalReminderStatus(true);
-    return sock.sendMessage(sender, { text: "✅ Reminder global dinyalakan untuk semua user." });
-  }
-
-  if (cmd === "/allreminderoff") {
-    if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
-    await setGlobalReminderStatus(false);
-    return sock.sendMessage(sender, { text: "⛔ Reminder global dimatikan untuk semua user." });
-  }
-
+  // Reminder buat semua user sekaligus (admin only)
   if (cmd === "/allreminder") {
     if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
-    const status = await getGlobalReminderStatus();
-    return sock.sendMessage(sender, { text: `Status reminder global: ${status ? "NYALA" : "MATI"}` });
+    const sub = (args || "").trim().toLowerCase();
+
+    if (sub === "on") {
+      const jumlah = await sheets.setAllUsersReminderStatus(true);
+      return sock.sendMessage(sender, { text: `✅ Reminder dinyalain buat ${jumlah} user.` });
+    }
+
+    if (sub === "off") {
+      const jumlah = await sheets.setAllUsersReminderStatus(false);
+      return sock.sendMessage(sender, { text: `⛔ Reminder dimatiin buat ${jumlah} user.` });
+    }
+
+    const users = await sheets.getAllUsers();
+    const nyala = users.filter((u) => u.reminderAktif).length;
+    return sock.sendMessage(sender, {
+      text: `Status reminder: ${nyala}/${users.length} user lagi nyala.\nKetik /allreminder on atau /allreminder off buat ubah semua sekaligus.`,
+    });
   }
 
   // command lain butuh: (1) diizinkan admin, (2) udah daftar
@@ -663,37 +703,59 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
       const ext = format;
       const outputPath = path.join(tempDir, `${prefix}_${Date.now()}.${ext}`);
 
+      let usedFallback = false;
+
       try {
-        if (format === "mp3") {
-          await new Promise((resolve, reject) => {
-            exec(
-              `${pathYtDlp()} -x --audio-format mp3 --extract-audio --audio-quality 0 -o "${outputPath}" "${url}"`,
-              { maxBuffer: 1024 * 1024 * 100 },
-              (err, stdout, stderr) => {
-                if (err) {
-                  console.error("[DOWNLOAD MP3] stderr:", stderr);
-                  reject(new Error(`${err.message} | stderr: ${stderr}`));
-                } else {
-                  resolve();
+        try {
+          if (format === "mp3") {
+            await new Promise((resolve, reject) => {
+              exec(
+                `${pathYtDlp()} -x --audio-format mp3 --extract-audio --audio-quality 0 --impersonate chrome -o "${outputPath}" "${url}"`,
+                { maxBuffer: 1024 * 1024 * 100 },
+                (err, stdout, stderr) => {
+                  if (err) {
+                    console.error("[DOWNLOAD MP3] stderr:", stderr);
+                    reject(new Error(`${err.message} | stderr: ${stderr}`));
+                  } else {
+                    resolve();
+                  }
                 }
-              }
-            );
-          });
-        } else {
-          await new Promise((resolve, reject) => {
-            exec(
-              `${pathYtDlp()} -f "best[ext=mp4]/best" --max-filesize 60M -o "${outputPath}" "${url}"`,
-              { maxBuffer: 1024 * 1024 * 50 },
-              (err, stdout, stderr) => {
-                if (err) {
-                  console.error("[DOWNLOAD MP4] stderr:", stderr);
-                  reject(new Error(`${err.message} | stderr: ${stderr}`));
-                } else {
-                  resolve();
+              );
+            });
+          } else {
+            await new Promise((resolve, reject) => {
+              exec(
+                `${pathYtDlp()} -f "best[ext=mp4]/best" --max-filesize 60M --impersonate chrome -o "${outputPath}" "${url}"`,
+                { maxBuffer: 1024 * 1024 * 50 },
+                (err, stdout, stderr) => {
+                  if (err) {
+                    console.error("[DOWNLOAD MP4] stderr:", stderr);
+                    reject(new Error(`${err.message} | stderr: ${stderr}`));
+                  } else {
+                    resolve();
+                  }
                 }
-              }
-            );
-          });
+              );
+            });
+          }
+        } catch (ytDlpErr) {
+          if (!isTikTokUrl(url)) throw ytDlpErr;
+
+          // yt-dlp gagal & ini link TikTok -> coba fallback API, bukan langsung nyerah
+          console.log(`[DOWNLOAD] yt-dlp gagal buat TikTok (${ytDlpErr.message}), coba fallback API...`);
+          try {
+            if (format === "mp3") {
+              const tempVideoPath = path.join(tempDir, `tiktok_tmp_${Date.now()}.mp4`);
+              await downloadTiktokFallback(url, tempVideoPath);
+              await convertToMp3(tempVideoPath, outputPath);
+              fs.unlinkSync(tempVideoPath);
+            } else {
+              await downloadTiktokFallback(url, outputPath);
+            }
+            usedFallback = true;
+          } catch (fallbackErr) {
+            throw new Error(`yt-dlp gagal (${ytDlpErr.message}); fallback API juga gagal (${fallbackErr.message})`);
+          }
         }
 
         const files = fs.readdirSync(tempDir).filter((f) => f.startsWith(prefix));
@@ -717,25 +779,33 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         }
 
         const finalPath = path.join(tempDir, finalFile);
+        const sumberNote = usedFallback ? " (via fallback API)" : "";
         if (format === "mp3") {
           const audioBuffer = fs.readFileSync(finalPath);
           await sock.sendMessage(sender, {
             audio: audioBuffer,
             mimetype: "audio/mpeg",
-            caption: "Nih audionya",
+            caption: `Nih audionya${sumberNote}`,
           });
         } else {
           const videoBuffer = fs.readFileSync(finalPath);
-          await sock.sendMessage(sender, { video: videoBuffer, caption: "Nih videonya" });
+          await sock.sendMessage(sender, { video: videoBuffer, caption: `Nih videonya${sumberNote}` });
         }
         fs.unlinkSync(finalPath);
       } catch (e) {
         const extraHelp = format === "mp3"
           ? "\n\nCatatan: download MP3 butuh ffmpeg di server bot. Kalau belum keinstall, cek README buat cara install-nya."
           : "";
+        const isImpersonationIssue = !isTikTokUrl(url) && /impersonat|universal data|rehydration/i.test(e.message);
+        const impersonationHelp = isImpersonationIssue
+          ? "\n\nKemungkinan besar ini masalah yang butuh 'impersonation' (niru fingerprint browser) buat yt-dlp bisa akses halamannya. Coba: (1) install curl_cffi di server bot, (2) update yt-dlp ke versi terbaru (`yt-dlp -U`)."
+          : "";
+        const tiktokFallbackHelp = isTikTokUrl(url)
+          ? "\n\nUdah dicoba lewat fallback API TikTok juga tapi tetep gagal — kemungkinan videonya private/dihapus, atau API fallback-nya lagi down."
+          : "";
 
         return sock.sendMessage(sender, {
-          text: `Gagal download: ${e.message}\n\nPastiin "yt-dlp" udah keinstall di komputer bot ya (cek README).${extraHelp}`,
+          text: `Gagal download: ${e.message}\n\nPastiin "yt-dlp" udah keinstall di komputer bot ya (cek README).${extraHelp}${impersonationHelp}${tiktokFallbackHelp}`,
         });
       }
       return;
@@ -1227,10 +1297,6 @@ async function targetReminderUsers() {
 }
 
 async function kirimRekapBerkala(sock) {
-  // Cek global reminder status
-  const globalEnabled = await sheets.getGlobalReminderStatus();
-  if (!globalEnabled) return;
-  
   try {
     const users = await targetReminderUsers();
     console.log(`[REMINDER] Kirim rekap berkala ke ${users.length} user (yang reminder-nya nyala)...`);
@@ -1251,10 +1317,6 @@ async function kirimRekapBerkala(sock) {
 }
 
 async function kirimReminderTodo(sock) {
-  // Cek global reminder status
-  const globalEnabled = await sheets.getGlobalReminderStatus();
-  if (!globalEnabled) return;
-  
   try {
     const users = await targetReminderUsers();
     console.log(`[REMINDER] Cek to-do pending buat ${users.length} user (yang reminder-nya nyala)...`);
@@ -1315,9 +1377,9 @@ function mulaiReminderBerkala(sock) {
   reminderIntervals = [
     setInterval(() => kirimRekapBerkala(sock), DUA_JAM_MS),
     setInterval(() => kirimReminderTodo(sock), LIMA_BELAS_MENIT_MS),
-    setInterval(() => cekAlarmBerkala(sock), 5 * 60 * 1000),
+    setInterval(() => cekAlarmBerkala(sock), 60 * 1000),
   ];
-  console.log("⏰ Reminder berkala aktif: rekap tiap 2 jam, todo tiap 15 menit, alarm dicek tiap 5 menit.");
+  console.log("⏰ Reminder berkala aktif: rekap tiap 2 jam, todo tiap 15 menit, alarm dicek tiap 1 menit.");
   console.log("   (Nunggu interval pertama lewat dulu baru kekirim. Test manual: /testreminder)");
 }
 
