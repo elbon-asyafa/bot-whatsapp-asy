@@ -39,21 +39,72 @@ function isTikTokUrl(url) {
 }
 
 // Fallback khusus TikTok, dipake kalau yt-dlp gagal (misal lagi ada bug ekstraktor upstream
-// kayak "Unable to extract universal data for rehydration"). Pakai API publik tikwm.com buat
-// ambil link video tanpa watermark, terus didownload manual — di luar yt-dlp sepenuhnya.
+// kayak "Unable to extract universal data for rehydration"). Pakai library @tobyg74/tiktok-api-dl
+// yang punya 3 provider berbeda (v1, v2=ssstik, v3=musicaldown) — dicoba satu-satu, jadi kalau
+// satu provider lagi di-block/down, otomatis lanjut ke provider berikutnya.
 async function downloadTiktokFallback(url, outputPath) {
-  const apiRes = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`);
-  const json = await apiRes.json();
-  if (json.code !== 0 || !json.data) {
-    throw new Error(`Fallback API TikTok gagal: ${json.msg || "respons nggak valid dari API"}`);
+  let TiktokDL;
+  try {
+    TiktokDL = require("@tobyg74/tiktok-api-dl");
+  } catch {
+    throw new Error('Library "@tobyg74/tiktok-api-dl" belum ke-install. Jalanin: npm install @tobyg74/tiktok-api-dl');
   }
-  const playUrl = json.data.play || json.data.hdplay;
-  if (!playUrl) throw new Error("Fallback API TikTok gagal: nggak ada link video di respons.");
 
-  const videoRes = await fetch(playUrl);
+  // Urutan sengaja v3 -> v2 -> v1: v3 (musicaldown) & v2 (ssstik) didesain khusus buat strip
+  // watermark, sedangkan v1 ngambil link resmi TikTok (downloadAddr) yang watermark-nya udah
+  // ke-burn di videonya. v1 ditaro paling akhir, cuma dipake kalau dua-duanya gagal.
+  const versions = ["v3", "v2", "v1"];
+  let videoUrl = null;
+  let providerDipake = null;
+  let kemungkinanAdaWm = false;
+  let pesanTerakhir = "";
+
+  for (const version of versions) {
+    try {
+      const result = await TiktokDL.Downloader(url, { version });
+      if (result.status !== "success" || !result.result) {
+        pesanTerakhir = `${version}: ${result.message || "gagal"}`;
+        continue;
+      }
+      const r = result.result;
+      if (version === "v1") {
+        videoUrl = r.video?.downloadAddr?.[0] || r.video?.playAddr?.[0];
+        kemungkinanAdaWm = true; // link resmi TikTok, watermark udah ke-burn
+      } else if (version === "v2") {
+        videoUrl = r.direct || r.video?.playAddr;
+        kemungkinanAdaWm = false;
+      } else if (version === "v3") {
+        if (r.videoHD) {
+          videoUrl = r.videoHD;
+          kemungkinanAdaWm = false;
+        } else if (r.videoWatermark) {
+          videoUrl = r.videoWatermark;
+          kemungkinanAdaWm = true;
+        }
+      }
+      if (videoUrl) {
+        providerDipake = version;
+        break;
+      }
+      pesanTerakhir = `${version}: respons sukses tapi nggak ada link video`;
+    } catch (err) {
+      pesanTerakhir = `${version}: ${err.message}`;
+    }
+  }
+
+  if (!videoUrl) {
+    throw new Error(`Semua provider fallback (v1/v2/v3) gagal. Terakhir: ${pesanTerakhir}`);
+  }
+
+  const videoRes = await fetch(videoUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    },
+  });
   if (!videoRes.ok) throw new Error(`Fallback API TikTok gagal ambil videonya (HTTP ${videoRes.status}).`);
   const buf = Buffer.from(await videoRes.arrayBuffer());
   fs.writeFileSync(outputPath, buf);
+  return { provider: providerDipake, kemungkinanAdaWm };
 }
 
 // Convert video hasil fallback jadi mp3 (dipake kalau user minta format mp3 tapi yt-dlp-nya gagal)
@@ -565,8 +616,10 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         `*/stiker* - ubah foto jadi stiker\n` +
         `*/stiker [text]* - ubah foto jadi stiker dengan text\n` +
         `*/stiker [text atas]|[text bawah]* - ubah foto jadi stiker dengan text atas bawah\n` +
-        `*/download [link] [format]* — download video/audio youtube/tiktok (format: mp4/mp3, max 60mb)\n` +
-        `_(contoh: /download https://tiktok..... mp4)_\n\n` +
+        `*/download [link] [format] | [caption]* — download video/audio youtube/tiktok (format: mp4/mp3, max 60mb)\n` +
+        `_(contoh: /download https://tiktok..... mp4)_\n` +
+        `_(contoh dengan caption sendiri: /download https://tiktok..... mp4 | ini caption aku)_\n` +
+        `_Tanpa caption, video/audio dikirim polos tanpa caption apa pun._\n\n` +
         `*6.) Utilitas*\n` +
         `*/kirim [nomor] [pesan]* — kirim pesan lewat bot ke nomor lain\n` +
         `*reply stiker + /kirim [nomor]* — kirim stiker itu ke nomor lain\n` +
@@ -672,17 +725,19 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
     }
 
     case "/download": {
-      const parts = args.trim().split(/\s+/);
-      if (parts.length < 1) {
+      const [mainPart, ...captionParts] = args.split("|");
+      const customCaption = captionParts.length > 0 ? captionParts.join("|").trim() : null;
+      const parts = mainPart.trim().split(/\s+/);
+      if (parts.length < 1 || !parts[0]) {
         return sock.sendMessage(sender, {
-          text: "Format: /download [link] [format]\nContoh: /download https://youtu.be/xyz mp3\nContoh: /download https://youtu.be/xyz mp4\nKalau format dikosongin, default mp4.\n\nBisa dari YouTube, TikTok, dan source lain yang didukung yt-dlp.",
+          text: "Format: /download [link] [format] | [caption]\nContoh: /download https://youtu.be/xyz mp3\nContoh: /download https://youtu.be/xyz mp4\nContoh dengan caption sendiri: /download https://tiktok.com/xxxxx mp4 | ini caption aku\n\nFormat dikosongin -> default mp4. Caption dikosongin -> video/audio dikirim tanpa caption.\n\nBisa dari YouTube, TikTok, dan source lain yang didukung yt-dlp.",
         });
       }
 
       const url = parts[0];
       if (!/^https?:\/\//.test(url)) {
         return sock.sendMessage(sender, {
-          text: "Format: /download [link] [format]\nContoh: /download https://youtu.be/xyz mp3\n\nCatatan: pastiin konten yang kamu download itu boleh diunduh (video sendiri, Creative Commons, atau diizinin creator-nya).",
+          text: "Format: /download [link] [format] | [caption]\nContoh: /download https://youtu.be/xyz mp3\n\nCatatan: pastiin konten yang kamu download itu boleh diunduh (video sendiri, Creative Commons, atau diizinin creator-nya).",
         });
       }
 
@@ -704,6 +759,7 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
       const outputPath = path.join(tempDir, `${prefix}_${Date.now()}.${ext}`);
 
       let usedFallback = false;
+      let fallbackInfo = null;
 
       try {
         try {
@@ -746,11 +802,11 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
           try {
             if (format === "mp3") {
               const tempVideoPath = path.join(tempDir, `tiktok_tmp_${Date.now()}.mp4`);
-              await downloadTiktokFallback(url, tempVideoPath);
+              fallbackInfo = await downloadTiktokFallback(url, tempVideoPath);
               await convertToMp3(tempVideoPath, outputPath);
               fs.unlinkSync(tempVideoPath);
             } else {
-              await downloadTiktokFallback(url, outputPath);
+              fallbackInfo = await downloadTiktokFallback(url, outputPath);
             }
             usedFallback = true;
           } catch (fallbackErr) {
@@ -765,11 +821,10 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
           if (fallback) {
             const fallbackPath = path.join(tempDir, fallback);
             const buf = fs.readFileSync(fallbackPath);
-            await sock.sendMessage(sender, {
-              [format === "mp3" ? "audio" : "video"]: buf,
-              mimetype: format === "mp3" ? "audio/mpeg" : undefined,
-              caption: format === "mp3" ? "Nih audionya" : "Nih videonya",
-            });
+            const kirimOpts = { [format === "mp3" ? "audio" : "video"]: buf };
+            if (format === "mp3") kirimOpts.mimetype = "audio/mpeg";
+            if (customCaption) kirimOpts.caption = customCaption;
+            await sock.sendMessage(sender, kirimOpts);
             fs.unlinkSync(fallbackPath);
             return;
           }
@@ -778,18 +833,23 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
           });
         }
 
+        if (usedFallback && fallbackInfo) {
+          console.log(
+            `[DOWNLOAD] TikTok dikirim via fallback ${fallbackInfo.provider}${fallbackInfo.kemungkinanAdaWm ? " (kemungkinan ada watermark)" : ""}`
+          );
+        }
+
         const finalPath = path.join(tempDir, finalFile);
-        const sumberNote = usedFallback ? " (via fallback API)" : "";
         if (format === "mp3") {
           const audioBuffer = fs.readFileSync(finalPath);
-          await sock.sendMessage(sender, {
-            audio: audioBuffer,
-            mimetype: "audio/mpeg",
-            caption: `Nih audionya${sumberNote}`,
-          });
+          const kirimOpts = { audio: audioBuffer, mimetype: "audio/mpeg" };
+          if (customCaption) kirimOpts.caption = customCaption;
+          await sock.sendMessage(sender, kirimOpts);
         } else {
           const videoBuffer = fs.readFileSync(finalPath);
-          await sock.sendMessage(sender, { video: videoBuffer, caption: `Nih videonya${sumberNote}` });
+          const kirimOpts = { video: videoBuffer };
+          if (customCaption) kirimOpts.caption = customCaption;
+          await sock.sendMessage(sender, kirimOpts);
         }
         fs.unlinkSync(finalPath);
       } catch (e) {
