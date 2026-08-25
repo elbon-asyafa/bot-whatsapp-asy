@@ -19,14 +19,15 @@ process.on("uncaughtException", (err) => {
 });
 
 const sheets = require("./sheets");
-const { 
-  getGroupSetting, 
-  setGroupActive, 
+const {
+  getGroupSetting,
+  setGroupActive,
   getAllActiveGroups,
   deleteCompletedTodos,
 } = require("./sheets");
 const { tanyaAI, prosesPerintahBot, analisisStruk, analisisGambar } = require("./gemini");
 const { generateStaticBrat, generateAnimatedBrat } = require("./brat-advanced");
+const { generateFakeChat } = require("./fakechat");
 const XLSX = require("xlsx");
 const { Sticker, StickerTypes } = require("wa-sticker-formatter");
 const Jimp = require("jimp");
@@ -47,7 +48,9 @@ async function downloadTiktokFallback(url, outputPath) {
   try {
     TiktokDL = require("@tobyg74/tiktok-api-dl");
   } catch {
-    throw new Error('Library "@tobyg74/tiktok-api-dl" belum ke-install. Jalanin: npm install @tobyg74/tiktok-api-dl');
+    throw new Error(
+      'Library "@tobyg74/tiktok-api-dl" belum ke-install. Jalanin: npm install @tobyg74/tiktok-api-dl'
+    );
   }
 
   // Urutan sengaja v3 -> v2 -> v1: v3 (musicaldown) & v2 (ssstik) didesain khusus buat strip
@@ -98,10 +101,12 @@ async function downloadTiktokFallback(url, outputPath) {
 
   const videoRes = await fetch(videoUrl, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     },
   });
-  if (!videoRes.ok) throw new Error(`Fallback API TikTok gagal ambil videonya (HTTP ${videoRes.status}).`);
+  if (!videoRes.ok)
+    throw new Error(`Fallback API TikTok gagal ambil videonya (HTTP ${videoRes.status}).`);
   const buf = Buffer.from(await videoRes.arrayBuffer());
   fs.writeFileSync(outputPath, buf);
   return { provider: providerDipake, kemungkinanAdaWm };
@@ -124,10 +129,7 @@ function convertToMp3(inputPath, outputPath) {
 function pathYtDlp() {
   // Cari yt-dlp lokal dulu (Windows: yt-dlp.exe, Linux/Mac: yt-dlp), baru fallback ke PATH sistem.
   // Di Arch Linux biasanya udah keinstall global via pacman, jadi fallback "yt-dlp" ini yang kepake.
-  const kandidat = [
-    path.join(__dirname, "yt-dlp.exe"),
-    path.join(__dirname, "yt-dlp"),
-  ];
+  const kandidat = [path.join(__dirname, "yt-dlp.exe"), path.join(__dirname, "yt-dlp")];
   const lokal = kandidat.find((p) => fs.existsSync(p));
   return lokal ? `"${lokal}"` : "yt-dlp";
 }
@@ -262,9 +264,7 @@ async function startBot() {
       }
     } else if (connection === "open") {
       console.log("✅ Bot WhatsApp terkoneksi!");
-      sheets.ensureBaseSheets().catch((e) =>
-        console.error("Gagal siapin sheet dasar:", e.message)
-      );
+      sheets.ensureBaseSheets().catch((e) => console.error("Gagal siapin sheet dasar:", e.message));
       mulaiReminderBerkala(sock);
     }
   });
@@ -283,103 +283,124 @@ async function startBot() {
       if (msgTime > 0 && msgTime < botStartTime - 10) continue;
 
       const sender = msg.key.remoteJid; // ke sini balesan bot dikirim (personal JID atau grup JID)
-        if (sender.endsWith("@newsletter")) return; // abaikan update channel, bukan chat personal
+      if (sender.endsWith("@newsletter")) return; // abaikan update channel, bukan chat personal
 
-        const isGroup = sender.endsWith("@g.us");
-        const authorId = isGroup ? msg.key.participant || sender : sender; // identitas ASLI si pengirim
-        const pushName = msg.pushName || null; // nama profil WA, buat fallback tanpa perlu /daftarbot
-        const mentionedJid = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
+      const isGroup = sender.endsWith("@g.us");
+      const authorId = isGroup ? msg.key.participant || sender : sender; // identitas ASLI si pengirim
+      const pushName = msg.pushName || null; // nama profil WA, buat fallback tanpa perlu /daftarbot
+      const mentionedJid = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
 
-        // Kadang WA kasih tau "JID alternatif" (nomor asli) di samping @lid, kalau ada kita tangkep
-        const nomorAsli = msg.key.remoteJidAlt || msg.key.participantAlt || null;
+      // Kadang WA kasih tau "JID alternatif" (nomor asli) di samping @lid, kalau ada kita tangkep
+      const nomorAsli = msg.key.remoteJidAlt || msg.key.participantAlt || null;
 
-        // Foto struk: gambar dengan caption /struk
-        const caption = msg.message.imageMessage?.caption || "";
-        if (msg.message.imageMessage && caption.trim().toLowerCase().startsWith("/struk")) {
-          console.log(`[MASUK] ${authorId} -> [foto struk]`);
-          try {
-            await handleStruk(sock, sender, authorId, msg, isGroup, nomorAsli);
-            console.log(`[SELESAI] Struk dari ${authorId} udah diproses.`);
-          } catch (err) {
-            console.error(`[ERROR] Gagal proses struk dari ${authorId}:`, err);
-            await sock.sendMessage(sender, {
-              text: "⚠️ Gagal baca struk-nya. Coba foto ulang yang lebih jelas.",
-            });
+      // Foto struk: gambar dengan caption /struk
+      const caption = msg.message.imageMessage?.caption || "";
+      if (msg.message.imageMessage && caption.trim().toLowerCase().startsWith("/struk")) {
+        console.log(`[MASUK] ${authorId} -> [foto struk]`);
+        try {
+          await handleStruk(sock, sender, authorId, msg, isGroup, nomorAsli);
+          console.log(`[SELESAI] Struk dari ${authorId} udah diproses.`);
+        } catch (err) {
+          console.error(`[ERROR] Gagal proses struk dari ${authorId}:`, err);
+          await sock.sendMessage(sender, {
+            text: "⚠️ Gagal baca struk-nya. Coba foto ulang yang lebih jelas.",
+          });
+        }
+        return;
+      }
+
+      // Foto biasa dengan caption /stiker atau /sticker: convert jadi stiker WA
+      const captionLower = caption.trim().toLowerCase();
+      if (
+        msg.message.imageMessage &&
+        (captionLower.startsWith("/stiker") || captionLower.startsWith("/sticker"))
+      ) {
+        console.log(`[MASUK] ${authorId} -> [foto buat stiker]`);
+        try {
+          await handleStiker(sock, sender, authorId, msg, caption);
+          console.log(`[SELESAI] Stiker buat ${authorId} udah dikirim.`);
+        } catch (err) {
+          console.error(`[ERROR] Gagal bikin stiker buat ${authorId}:`, err);
+          await sock.sendMessage(sender, {
+            text: "⚠️ Gagal bikin stiker. Coba foto lain.",
+          });
+        }
+        return;
+      }
+
+      // Foto dengan caption /ai: analisis gambar pakai AI vision
+      if (msg.message.imageMessage && captionLower.startsWith("/ai")) {
+        console.log(`[MASUK] ${authorId} -> [foto buat /ai]`);
+        try {
+          await handleCommand(
+            sock,
+            sender,
+            caption.trim(),
+            nomorAsli,
+            authorId,
+            isGroup,
+            mentionedJid,
+            pushName,
+            null,
+            msg
+          );
+          console.log(`[SELESAI] Analisis gambar /ai buat ${authorId} udah dibales.`);
+        } catch (err) {
+          console.error(`[ERROR] Gagal analisis gambar /ai dari ${authorId}:`, err);
+          await sock.sendMessage(sender, {
+            text: "⚠️ Gagal analisis gambarnya. Coba lagi ya.",
+          });
+        }
+        return;
+      }
+
+      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+
+      if (!text.startsWith("/")) return; // abaikan pesan non-command
+
+      const cmdUntukLog = text.trim().split(/\s+/)[0].toLowerCase();
+      if (cmdUntukLog === "/kirim") {
+        console.log(
+          `[MASUK] ${authorId}${isGroup ? " (grup)" : ""} -> /kirim [detail disembunyiin demi privasi]`
+        );
+      } else {
+        console.log(`[MASUK] ${authorId}${isGroup ? " (grup)" : ""} -> ${text.trim()}`);
+      }
+
+      if (pushName) {
+        sheets.simpanKontak(authorId, pushName).catch(() => {}); // cache nama, best-effort, jangan blocking
+      }
+
+      // Info pesan yang di-reply (dipakai /kirim buat forward stiker)
+      const contextInfo = msg.message.extendedTextMessage?.contextInfo || null;
+      const quotedInfo = contextInfo?.quotedMessage
+        ? {
+            message: contextInfo.quotedMessage,
+            stanzaId: contextInfo.stanzaId,
+            participant: contextInfo.participant,
           }
-          return;
-        }
+        : null;
 
-        // Foto biasa dengan caption /stiker atau /sticker: convert jadi stiker WA
-        const captionLower = caption.trim().toLowerCase();
-        if (
-          msg.message.imageMessage &&
-          (captionLower.startsWith("/stiker") || captionLower.startsWith("/sticker"))
-        ) {
-          console.log(`[MASUK] ${authorId} -> [foto buat stiker]`);
-          try {
-            await handleStiker(sock, sender, authorId, msg, caption);
-            console.log(`[SELESAI] Stiker buat ${authorId} udah dikirim.`);
-          } catch (err) {
-            console.error(`[ERROR] Gagal bikin stiker buat ${authorId}:`, err);
-            await sock.sendMessage(sender, {
-              text: "⚠️ Gagal bikin stiker. Coba foto lain.",
-            });
-          }
-          return;
-        }
-
-        // Foto dengan caption /ai: analisis gambar pakai AI vision
-        if (msg.message.imageMessage && captionLower.startsWith("/ai")) {
-          console.log(`[MASUK] ${authorId} -> [foto buat /ai]`);
-          try {
-            await handleCommand(sock, sender, caption.trim(), nomorAsli, authorId, isGroup, mentionedJid, pushName, null, msg);
-            console.log(`[SELESAI] Analisis gambar /ai buat ${authorId} udah dibales.`);
-          } catch (err) {
-            console.error(`[ERROR] Gagal analisis gambar /ai dari ${authorId}:`, err);
-            await sock.sendMessage(sender, {
-              text: "⚠️ Gagal analisis gambarnya. Coba lagi ya.",
-            });
-          }
-          return;
-        }
-
-      const text =
-        msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        "";
-
-    if (!text.startsWith("/")) return; // abaikan pesan non-command
-
-    const cmdUntukLog = text.trim().split(/\s+/)[0].toLowerCase();
-    if (cmdUntukLog === "/kirim") {
-      console.log(`[MASUK] ${authorId}${isGroup ? " (grup)" : ""} -> /kirim [detail disembunyiin demi privasi]`);
-    } else {
-      console.log(`[MASUK] ${authorId}${isGroup ? " (grup)" : ""} -> ${text.trim()}`);
-    }
-
-    if (pushName) {
-      sheets.simpanKontak(authorId, pushName).catch(() => {}); // cache nama, best-effort, jangan blocking
-    }
-
-    // Info pesan yang di-reply (dipakai /kirim buat forward stiker)
-    const contextInfo = msg.message.extendedTextMessage?.contextInfo || null;
-    const quotedInfo = contextInfo?.quotedMessage
-      ? {
-          message: contextInfo.quotedMessage,
-          stanzaId: contextInfo.stanzaId,
-          participant: contextInfo.participant,
-        }
-      : null;
-
-    try {
-      await handleCommand(sock, sender, text.trim(), nomorAsli, authorId, isGroup, mentionedJid, pushName, quotedInfo, msg);
-      console.log(`[SELESAI] Command dari ${authorId} udah diproses & dibales.`);
-    } catch (err) {
-      console.error(`[ERROR] Gagal proses command dari ${authorId}:`, err);
-      await sock.sendMessage(sender, {
-        text: "⚠️ Ada error pas proses command. Coba lagi ya.",
-      });
-    }
+      try {
+        await handleCommand(
+          sock,
+          sender,
+          text.trim(),
+          nomorAsli,
+          authorId,
+          isGroup,
+          mentionedJid,
+          pushName,
+          quotedInfo,
+          msg
+        );
+        console.log(`[SELESAI] Command dari ${authorId} udah diproses & dibales.`);
+      } catch (err) {
+        console.error(`[ERROR] Gagal proses command dari ${authorId}:`, err);
+        await sock.sendMessage(sender, {
+          text: "⚠️ Ada error pas proses command. Coba lagi ya.",
+        });
+      }
     }
   });
 }
@@ -423,7 +444,6 @@ async function handleStruk(sock, sender, authorId, msg, isGroup, nomorAsli) {
   });
 }
 
-
 async function tambahTeksMeme(buffer, teksAtas, teksBawah) {
   const image = await Jimp.read(buffer);
   image.resize(512, Jimp.AUTO); // normalisasi ukuran biar teks konsisten proporsinya, apapun resolusi asli fotonya
@@ -445,15 +465,26 @@ async function tambahTeksMeme(buffer, teksAtas, teksBawah) {
       alignmentY: Jimp.VERTICAL_ALIGN_TOP,
     };
     const arahOutline = [
-      [-offsetOutline, -offsetOutline], [offsetOutline, -offsetOutline],
-      [-offsetOutline, offsetOutline], [offsetOutline, offsetOutline],
-      [0, -offsetOutline], [0, offsetOutline], [-offsetOutline, 0], [offsetOutline, 0],
+      [-offsetOutline, -offsetOutline],
+      [offsetOutline, -offsetOutline],
+      [-offsetOutline, offsetOutline],
+      [offsetOutline, offsetOutline],
+      [0, -offsetOutline],
+      [0, offsetOutline],
+      [-offsetOutline, 0],
+      [offsetOutline, 0],
     ];
     for (const [dx, dy] of arahOutline) {
       image.print(fontHitam, dx, y + dy, opsi, width);
     }
     // cetak putih beberapa kali dioffset kecil biar keliatan lebih tebal/bold
-    const arahBold = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
+    const arahBold = [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
     for (const [dx, dy] of arahBold) {
       image.print(fontPutih, dx, y + dy, opsi, width);
     }
@@ -500,12 +531,23 @@ async function handleStiker(sock, sender, authorId, msg, caption) {
   return sock.sendMessage(sender, { sticker: stickerBuffer });
 }
 
-async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, mentionedJid, pushName, quotedInfo, msg) {
+async function handleCommand(
+  sock,
+  sender,
+  text,
+  nomorAsli,
+  authorId,
+  isGroup,
+  mentionedJid,
+  pushName,
+  quotedInfo,
+  msg
+) {
   const [command, ...rest] = text.split(" ");
   const args = rest.join(" ");
   const cmd = command.toLowerCase();
 
-  const ACTIVATION_CMDS = ['/botonline', '/botoffline'];
+  const ACTIVATION_CMDS = ["/botonline", "/botoffline"];
 
   // Check group activation FIRST
   if (isGroup && !ACTIVATION_CMDS.includes(cmd)) {
@@ -521,8 +563,11 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
 
   // Commands that are NEVER allowed in groups (even when active)
   const TRULY_PERSONAL_ONLY = [
-    "/daftarbot", "/deleteuser",
-    "/listuser", "/adminhapususer", "/testreminder",
+    "/daftarbot",
+    "/deleteuser",
+    "/listuser",
+    "/adminhapususer",
+    "/testreminder",
     "/alert",
   ];
   if (isGroup && TRULY_PERSONAL_ONLY.includes(cmd)) {
@@ -561,17 +606,17 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
   }
 
   if (cmd === "/help") {
-      const bagianAdmin = isOwner(authorId)
-        ? `\n\n*Admin (khusus pemilik bot)*\n` +
-          `*/listuser* — lihat semua user terdaftar (hanya chat pribadi)\n` +
-          `*/adminhapususer [nama]* — hapus akun user manapun (hanya chat pribadi)\n` +
-          `*/testreminder* — tes kirim reminder sekarang juga (hanya chat pribadi)\n` +
-          `*/ping [text]* — tag semua member grup (hanya di grup)\n` +
-          `*/alert [text]* — kirim info ke semua user & grup aktif\n` +
-          `*/botonline* — aktifkan bot di grup ini (hanya di grup)\n` +
-          `*/botoffline* — nonaktifkan bot di grup ini (hanya di grup)\n` +
-          `*/allreminder [on/off]* — nyalain/matiin reminder buat semua user sekaligus, tanpa argumen buat cek status\n`
-        : "";
+    const bagianAdmin = isOwner(authorId)
+      ? `\n\n*Admin (khusus pemilik bot)*\n` +
+        `*/listuser* — lihat semua user terdaftar (hanya chat pribadi)\n` +
+        `*/adminhapususer [nama]* — hapus akun user manapun (hanya chat pribadi)\n` +
+        `*/testreminder* — tes kirim reminder sekarang juga (hanya chat pribadi)\n` +
+        `*/ping [text]* — tag semua member grup (hanya di grup)\n` +
+        `*/alert [text]* — kirim info ke semua user & grup aktif\n` +
+        `*/botonline* — aktifkan bot di grup ini (hanya di grup)\n` +
+        `*/botoffline* — nonaktifkan bot di grup ini (hanya di grup)\n` +
+        `*/allreminder [on/off]* — nyalain/matiin reminder buat semua user sekaligus, tanpa argumen buat cek status\n`
+      : "";
 
     const bagianPersonal = isGroup
       ? ""
@@ -624,7 +669,8 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         `*/kirim [nomor] [pesan]* — kirim pesan lewat bot ke nomor lain\n` +
         `*reply stiker + /kirim [nomor]* — kirim stiker itu ke nomor lain\n` +
         `*/brat [teks]* — bikin stiker brat\n` +
-        `*/bratvid [teks]* — bikin stiker brat bergerak\n\n` +
+        `*/bratvid [teks]* — bikin stiker brat bergerak\n` +
+        `*/fakechat [teks pesan]* — bikin screenshot chat WA palsu lengkap (bar reaksi, bubble, menu Balas/Teruskan/Salin/dll), cuma teks pesan yang bisa diganti\n\n` +
         `*7.) AI Assistant*\n` +
         `*/ai [perintah/pertanyaan]* — suruh/tanya bot\n` +
         `_contoh: "/ai gimana rekapku hari ini?"_\n` +
@@ -640,10 +686,12 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
     if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Cuma pemilik bot." });
 
     const metadata = await sock.groupMetadata(sender).catch(() => null);
-    const groupName = metadata?.subject || 'Unknown';
+    const groupName = metadata?.subject || "Unknown";
 
     await setGroupActive(sender, groupName, authorId, true);
-    return sock.sendMessage(sender, { text: `✅ Bot diaktifkan di grup *${groupName}*. Sekarang bisa pakai command & terima /alert.` });
+    return sock.sendMessage(sender, {
+      text: `✅ Bot diaktifkan di grup *${groupName}*. Sekarang bisa pakai command & terima /alert.`,
+    });
   }
 
   if (cmd === "/botoffline") {
@@ -651,15 +699,18 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
     if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Cuma pemilik bot." });
 
     const metadata = await sock.groupMetadata(sender).catch(() => null);
-    const groupName = metadata?.subject || 'Unknown';
+    const groupName = metadata?.subject || "Unknown";
 
     await setGroupActive(sender, groupName, authorId, false);
-    return sock.sendMessage(sender, { text: `⛔ Bot dinonaktifkan di grup *${groupName}*. Command & /alert tidak diproses.` });
+    return sock.sendMessage(sender, {
+      text: `⛔ Bot dinonaktifkan di grup *${groupName}*. Command & /alert tidak diproses.`,
+    });
   }
 
   // Reminder buat semua user sekaligus (admin only)
   if (cmd === "/allreminder") {
-    if (!isOwner(authorId)) return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
+    if (!isOwner(authorId))
+      return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
     const sub = (args || "").trim().toLowerCase();
 
     if (sub === "on") {
@@ -746,9 +797,10 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         format = "mp4";
       }
 
-      const statusText = format === "mp3"
-        ? "Lagi download & convert ke MP3, tunggu bentar..."
-        : "Lagi download videonya, tunggu bentar... (maks 60MB ya, karena keterbatasan WA)";
+      const statusText =
+        format === "mp3"
+          ? "Lagi download & convert ke MP3, tunggu bentar..."
+          : "Lagi download videonya, tunggu bentar... (maks 60MB ya, karena keterbatasan WA)";
 
       await sock.sendMessage(sender, { text: statusText });
 
@@ -798,7 +850,9 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
           if (!isTikTokUrl(url)) throw ytDlpErr;
 
           // yt-dlp gagal & ini link TikTok -> coba fallback API, bukan langsung nyerah
-          console.log(`[DOWNLOAD] yt-dlp gagal buat TikTok (${ytDlpErr.message}), coba fallback API...`);
+          console.log(
+            `[DOWNLOAD] yt-dlp gagal buat TikTok (${ytDlpErr.message}), coba fallback API...`
+          );
           try {
             if (format === "mp3") {
               const tempVideoPath = path.join(tempDir, `tiktok_tmp_${Date.now()}.mp4`);
@@ -810,7 +864,9 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
             }
             usedFallback = true;
           } catch (fallbackErr) {
-            throw new Error(`yt-dlp gagal (${ytDlpErr.message}); fallback API juga gagal (${fallbackErr.message})`);
+            throw new Error(
+              `yt-dlp gagal (${ytDlpErr.message}); fallback API juga gagal (${fallbackErr.message})`
+            );
           }
         }
 
@@ -853,10 +909,12 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         }
         fs.unlinkSync(finalPath);
       } catch (e) {
-        const extraHelp = format === "mp3"
-          ? "\n\nCatatan: download MP3 butuh ffmpeg di server bot. Kalau belum keinstall, cek README buat cara install-nya."
-          : "";
-        const isImpersonationIssue = !isTikTokUrl(url) && /impersonat|universal data|rehydration/i.test(e.message);
+        const extraHelp =
+          format === "mp3"
+            ? "\n\nCatatan: download MP3 butuh ffmpeg di server bot. Kalau belum keinstall, cek README buat cara install-nya."
+            : "";
+        const isImpersonationIssue =
+          !isTikTokUrl(url) && /impersonat|universal data|rehydration/i.test(e.message);
         const impersonationHelp = isImpersonationIssue
           ? "\n\nKemungkinan besar ini masalah yang butuh 'impersonation' (niru fingerprint browser) buat yt-dlp bisa akses halamannya. Coba: (1) install curl_cffi di server bot, (2) update yt-dlp ke versi terbaru (`yt-dlp -U`)."
           : "";
@@ -909,6 +967,35 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         console.error(`[BRAT${isVideo ? "VID" : ""}] Error:`, e);
         await sock.sendMessage(sender, {
           text: `Gagal bikin stiker ${cmdLabel}. Coba lagi ya.`,
+        });
+      }
+      return;
+    }
+
+    case "/fakechat": {
+      if (!bolehAksesFitur(authorId)) {
+        return sock.sendMessage(sender, {
+          text: "Kamu belum diaktifin buat pakai fitur bot ini. Minta admin nambahin JID kamu ke akses bot ya.",
+        });
+      }
+
+      const formatMsg =
+        "Format: /fakechat [teks pesan]\nContoh: /fakechat trs kegiatan lu apa dong kalo ga pacaran apa ga kesepian?\n\n" +
+        "Custom jam pake | di akhir, misal: /fakechat halo bro|21.30\n\n" +
+        "Hasilnya screenshot chat WA lengkap sama bar reaksi & menu (Balas/Teruskan/Salin/Beri bintang/Hapus/Lainnya) — cuma teks pesannya yang bisa diganti, sisanya fix.";
+
+      const teksPesan = args.trim();
+      if (!teksPesan) {
+        return sock.sendMessage(sender, { text: formatMsg });
+      }
+
+      try {
+        const gambarBuffer = await generateFakeChat(teksPesan);
+        await sock.sendMessage(sender, { image: gambarBuffer });
+      } catch (e) {
+        console.error("[FAKECHAT] Error:", e);
+        await sock.sendMessage(sender, {
+          text: `Gagal bikin fake chat: ${e.message}`,
         });
       }
       return;
@@ -968,7 +1055,7 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
       const match = args.match(/(\d{1,2}[.:]\d{2})/);
       if (!match) {
         return sock.sendMessage(sender, {
-          text: 'Format: /alarm [jam] [pesan]\nContoh: /alarm 20:20 mau coding',
+          text: "Format: /alarm [jam] [pesan]\nContoh: /alarm 20:20 mau coding",
         });
       }
       const waktu = parseWaktu(match[1]);
@@ -1035,10 +1122,7 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         });
       }
       const list = todos
-        .map(
-          (t, i) =>
-            `${i + 1}. ${t.status === "Done" ? "✅" : "⬜"} ${t.task}`
-        )
+        .map((t, i) => `${i + 1}. ${t.status === "Done" ? "✅" : "⬜"} ${t.task}`)
         .join("\n");
       return sock.sendMessage(sender, {
         text: `📝 *To-do Hari Ini - ${nama}*\n${list}\n\nBalas /done [nomor] buat tandain selesai.`,
@@ -1113,9 +1197,7 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
 
       const workbook = XLSX.utils.book_new();
       const sheetKeuangan = XLSX.utils.aoa_to_sheet(
-        data.keuangan.length > 0
-          ? data.keuangan
-          : [["Tanggal", "Jenis", "Nominal", "Keterangan"]]
+        data.keuangan.length > 0 ? data.keuangan : [["Tanggal", "Jenis", "Nominal", "Keterangan"]]
       );
       const sheetTodo = XLSX.utils.aoa_to_sheet(
         data.todo.length > 0 ? data.todo : [["Tanggal", "Task", "Status"]]
@@ -1128,8 +1210,7 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
       return sock.sendMessage(sender, {
         document: buffer,
         fileName: `Rekap_${nama}.xlsx`,
-        mimetype:
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         caption: `📄 Rekap keuangan & to-do milik ${nama}`,
       });
     }
@@ -1305,7 +1386,7 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
         const groupSetting = await getGroupSetting(grup.id);
         if (!groupSetting || !groupSetting.isActive) continue;
 
-        const participantJids = grup.participants.map(p => p.id);
+        const participantJids = grup.participants.map((p) => p.id);
         try {
           await sock.sendMessage(grup.id, { text: teksAlert, mentions: participantJids });
           kirimKeGrup++;
@@ -1350,16 +1431,16 @@ async function handleCommand(sock, sender, text, nomorAsli, authorId, isGroup, m
 async function targetReminderUsers() {
   const users = await sheets.getAllUsers();
   const scopedUsers =
-    ALLOWED_NUMBERS.length > 0
-      ? users.filter((u) => ALLOWED_NUMBERS.includes(u.jid))
-      : users;
+    ALLOWED_NUMBERS.length > 0 ? users.filter((u) => ALLOWED_NUMBERS.includes(u.jid)) : users;
   return scopedUsers.filter((u) => u.reminderAktif);
 }
 
 async function kirimRekapBerkala(sock) {
   try {
     const users = await targetReminderUsers();
-    console.log(`[REMINDER] Kirim rekap berkala ke ${users.length} user (yang reminder-nya nyala)...`);
+    console.log(
+      `[REMINDER] Kirim rekap berkala ke ${users.length} user (yang reminder-nya nyala)...`
+    );
     for (const user of users) {
       const rekap = await sheets.rekapHariIni(user.nama);
       await sock.sendMessage(user.jid, {
@@ -1379,7 +1460,9 @@ async function kirimRekapBerkala(sock) {
 async function kirimReminderTodo(sock) {
   try {
     const users = await targetReminderUsers();
-    console.log(`[REMINDER] Cek to-do pending buat ${users.length} user (yang reminder-nya nyala)...`);
+    console.log(
+      `[REMINDER] Cek to-do pending buat ${users.length} user (yang reminder-nya nyala)...`
+    );
     for (const user of users) {
       const todos = await sheets.getTodoHariIni(user.nama);
       const pending = todos.filter((t) => t.status !== "Done");
@@ -1439,7 +1522,9 @@ function mulaiReminderBerkala(sock) {
     setInterval(() => kirimReminderTodo(sock), LIMA_BELAS_MENIT_MS),
     setInterval(() => cekAlarmBerkala(sock), 60 * 1000),
   ];
-  console.log("⏰ Reminder berkala aktif: rekap tiap 2 jam, todo tiap 15 menit, alarm dicek tiap 1 menit.");
+  console.log(
+    "⏰ Reminder berkala aktif: rekap tiap 2 jam, todo tiap 15 menit, alarm dicek tiap 1 menit."
+  );
   console.log("   (Nunggu interval pertama lewat dulu baru kekirim. Test manual: /testreminder)");
 }
 
