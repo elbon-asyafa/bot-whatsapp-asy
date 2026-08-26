@@ -12,7 +12,7 @@ const FONT = "Inter";
 
 // ==================== KONFIGURASI TAMPILAN ====================
 const WIDTH = 720;
-const HEIGHT = Math.round((WIDTH * 19) / 6); // rasio 6:19 sesuai permintaan
+const HEIGHT = Math.round((WIDTH * 16) / 9); // rasio 9:16
 
 const WARNA = {
   bubbleTeks: "#111111",
@@ -91,55 +91,70 @@ function softBlob(ctx, x, y, r, color) {
   ctx.fill();
 }
 
-function gambarBackgroundBlur(ctx, w, h) {
-  ctx.fillStyle = "#3a3a3a";
-  ctx.fillRect(0, 0, w, h);
-  softBlob(ctx, w * 0.28, 90, w * 0.34, "rgba(222,193,145,0.85)");
-  softBlob(ctx, w * 0.78, 200, w * 0.32, "rgba(110,85,60,0.75)");
-  softBlob(ctx, w * 0.08, 260, w * 0.22, "rgba(70,70,70,0.6)");
-  softBlob(ctx, w * 0.92, 40, w * 0.18, "rgba(205,205,205,0.3)");
-  softBlob(ctx, w * 0.2, h - 120, w * 0.26, "rgba(55,50,45,0.55)");
-  softBlob(ctx, w * 0.8, h - 60, w * 0.3, "rgba(90,70,50,0.5)");
-  softBlob(ctx, w * 0.5, h - 200, w * 0.2, "rgba(150,140,130,0.25)");
-  softBlob(ctx, w * 0.5, h * 0.5, w * 0.5, "rgba(45,42,40,0.35)");
+// Background: foto asli yang di-cover-crop biar penuh isi canvas (mirip object-fit: cover di CSS)
+let bgImageCache = null;
+async function loadBgImage() {
+  if (bgImageCache) return bgImageCache;
+  bgImageCache = await loadImage(path.join(__dirname, "assets/bg.jpg"));
+  return bgImageCache;
+}
+
+function gambarBackground(ctx, w, h, img) {
+  const scale = Math.max(w / img.width, h / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  const dx = (w - dw) / 2;
+  const dy = (h - dh) / 2;
+  ctx.drawImage(img, dx, dy, dw, dh);
 }
 
 // ==================== IKON MENU (vector, digambar manual) ====================
 
-function iconReply(ctx, cx, cy, s, color) {
+// Panah kurva dengan arrowhead yang ngikutin tangent kurva quadratic Bezier
+// secara matematis (bukan kira-kira) — hasilnya jauh lebih rapi & simetris.
+function drawCurvedArrow(ctx, cx, cy, s, color, mirror) {
+  const m = mirror ? -1 : 1;
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
-  ctx.lineWidth = s * 0.1;
+  ctx.lineWidth = s * 0.12;
   ctx.lineCap = "round";
-  ctx.lineJoin = "round";
+
+  const p0x = cx + m * s * 0.34, p0y = cy + s * 0.08;
+  const p1x = cx - m * s * 0.02, p1y = cy - s * 0.36;
+  const p2x = cx - m * s * 0.34, p2y = cy + s * 0.02;
+
   ctx.beginPath();
-  ctx.moveTo(cx + s * 0.32, cy - s * 0.3);
-  ctx.quadraticCurveTo(cx - s * 0.35, cy - s * 0.3, cx - s * 0.35, cy + s * 0.15);
+  ctx.moveTo(p0x, p0y);
+  ctx.quadraticCurveTo(p1x, p1y, p2x, p2y);
   ctx.stroke();
+
+  // Tangent kurva di titik akhir (t=1) = arah (p2 - p1), dinormalisasi
+  let dx = p2x - p1x, dy = p2y - p1y;
+  const len = Math.hypot(dx, dy);
+  dx /= len; dy /= len;
+  const nx = -dy, ny = dx; // normal, buat lebar arrowhead
+
+  const headLen = s * 0.34;
+  const headWidth = s * 0.22;
+  const tipX = p2x + dx * headLen * 0.55;
+  const tipY = p2y + dy * headLen * 0.55;
+  const backX = tipX - dx * headLen;
+  const backY = tipY - dy * headLen;
+
   ctx.beginPath();
-  ctx.moveTo(cx - s * 0.12, cy - s * 0.55);
-  ctx.lineTo(cx - s * 0.4, cy - s * 0.3);
-  ctx.lineTo(cx - s * 0.12, cy - s * 0.05);
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(backX + nx * headWidth, backY + ny * headWidth);
+  ctx.lineTo(backX - nx * headWidth, backY - ny * headWidth);
   ctx.closePath();
   ctx.fill();
 }
 
+function iconReply(ctx, cx, cy, s, color) {
+  drawCurvedArrow(ctx, cx, cy, s, color, false);
+}
+
 function iconForward(ctx, cx, cy, s, color) {
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = s * 0.1;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  ctx.moveTo(cx - s * 0.32, cy - s * 0.3);
-  ctx.quadraticCurveTo(cx + s * 0.35, cy - s * 0.3, cx + s * 0.35, cy + s * 0.15);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(cx + s * 0.12, cy - s * 0.55);
-  ctx.lineTo(cx + s * 0.4, cy - s * 0.3);
-  ctx.lineTo(cx + s * 0.12, cy - s * 0.05);
-  ctx.closePath();
-  ctx.fill();
+  drawCurvedArrow(ctx, cx, cy, s, color, true);
 }
 
 function iconCopy(ctx, cx, cy, s, color) {
@@ -246,6 +261,7 @@ async function generateFakeChat(script) {
   if (!isi) throw new Error("Teks pesan kosong.");
 
   const emojis = await loadEmojis();
+  const bgImage = await loadBgImage();
 
   const measureCanvas = createCanvas(WIDTH, 100);
   const mctx = measureCanvas.getContext("2d");
@@ -269,15 +285,14 @@ async function generateFakeChat(script) {
   const MENU_H = MENU_ITEM_H * MENU_ITEMS.length + DIVIDER_GAP + MENU_ITEM_H + MENU_PAD_V * 2;
 
   const kontenHeight = REAKSI_H + GAP_1 + bubbleHeight + GAP_2 + MENU_H;
-  // Sisa tinggi (di luar konten) dibagi rata atas-bawah, biar total tetap 6:19 persis
+  // Sisa tinggi (di luar konten) dibagi atas-bawah, biar total tetap 9:16 persis
   const sisaHeight = Math.max(0, HEIGHT - kontenHeight);
   const TOP_BLUR = Math.round(sisaHeight * 0.35) + 30;
-  const BOTTOM_BLUR = sisaHeight - (TOP_BLUR - 30) + 30;
 
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  gambarBackgroundBlur(ctx, WIDTH, HEIGHT);
+  gambarBackground(ctx, WIDTH, HEIGHT, bgImage);
 
   const reaksiY = TOP_BLUR;
   const reaksiMarginX = 20;
