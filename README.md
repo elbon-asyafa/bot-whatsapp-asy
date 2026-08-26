@@ -169,7 +169,7 @@ bot-whatsapp-asy/
 ├── temp/                              # File temporary /download (auto terhapus)
 ├── fonts/
 │   ├── arialnarrow.ttf                 # Font stiker Brat
-│   └── Inter-Regular.ttf, Inter-Bold.ttf  # Font /fakechat
+│   └── sfprodisplayregular.otf          # Font /fakechat
 └── assets/
     ├── bg.jpg                          # Background /fakechat
     └── emoji/*.png                      # Emoji bar reaksi /fakechat
@@ -220,7 +220,7 @@ nyesuain diri. YouTube & platform lain harusnya nggak kena isu ini.
    # Debian/Ubuntu: sudo apt install libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fontconfig
    ```
 2. Error `Cannot find module '../build/Release/canvas.node'` → `npm rebuild canvas --legacy-peer-deps`
-3. `/fakechat` emoji-nya pakai PNG bundled di `assets/emoji/` (bukan font sistem), jadi harusnya selalu muncul berwarna tanpa install tambahan — kalau error, cek folder `assets/emoji/` dan `fonts/Inter-*.ttf` ada di project.
+3. `/fakechat` emoji-nya pakai PNG bundled di `assets/emoji/` (bukan font sistem), jadi harusnya selalu muncul berwarna tanpa install tambahan — kalau error, cek folder `assets/emoji/` dan `fonts/sfprodisplayregular.otf` ada di project.
 4. `/bratvid` nggak bergerak → cek `ffmpeg` support webp: `ffmpeg -codecs | grep webp`
 
 **`Kamu belum terdaftar` padahal sudah `/daftarbot`** — JID `@lid` kadang

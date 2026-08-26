@@ -2,13 +2,12 @@ const path = require("path");
 const { createCanvas, registerFont, loadImage } = require("canvas");
 
 // ==================== FONT ====================
-// Inter dipake sebagai pengganti SF Pro (font Apple) — Apple nggak ngizinin
-// font mereka didistribusikan ulang, Inter adalah pengganti open-source yang
-// desainnya paling dekat secara visual, dan banyak dipakai buat itu.
-registerFont(path.join(__dirname, "fonts/Inter-Regular.ttf"), { family: "Inter", weight: "400" });
-registerFont(path.join(__dirname, "fonts/Inter-Bold.ttf"), { family: "Inter", weight: "700" });
+registerFont(path.join(__dirname, "fonts/sfprodisplayregular.otf"), {
+  family: "SF Pro Display",
+  weight: "400",
+});
 
-const FONT = "Inter";
+const FONT = "SF Pro Display";
 
 // ==================== KONFIGURASI TAMPILAN ====================
 const WIDTH = 720;
@@ -26,7 +25,15 @@ const WARNA = {
   ikon: "#3C3C3C",
 };
 
-const EMOJI_FILES = ["thumbsup", "heart", "laugh", "surprised", "cry", "pray", "fire"];
+const EMOJI_FILES = [
+  "thumbup",
+  "redheart",
+  "facewithtearofjoy",
+  "facewithopenmouth",
+  "sadbutrelievedface",
+  "foldedhands",
+  "coldface",
+];
 
 const MENU_ITEMS = [
   { label: "Balas", icon: "reply" },

@@ -68,7 +68,7 @@ bot-whatsapp-asy/
 ├── temp/                              # File sementara /download, auto terhapus
 ├── fonts/
 │   ├── arialnarrow.ttf                 # Brat
-│   └── Inter-Regular.ttf, Inter-Bold.ttf  # /fakechat (pengganti SF Pro — lisensi Apple nggak bisa didistribusi ulang)
+│   └── sfprodisplayregular.otf          # /fakechat
 └── assets/
     ├── bg.jpg                          # Background /fakechat
     └── emoji/*.png                      # 7 emoji reaksi /fakechat (dari Twemoji, dirender jadi PNG statis biar nggak gantung font sistem)
@@ -139,9 +139,9 @@ Generate screenshot chat WA palsu (background foto + bar reaksi emoji +
 1 bubble custom + menu konteks Balas/Teruskan/Salin/Beri
 bintang/Hapus/Lainnya). Cuma teks bubble yang bisa di-custom — layout,
 background, dan menu **fix** (permintaan eksplisit pemilik project).
-Rasio 9:16. Font Inter (pengganti SF Pro, lihat Bagian 3). Emoji dari
-PNG bundled (`assets/emoji/`), bukan font sistem — supaya konsisten di
-semua environment tanpa install tambahan.
+Rasio 9:16. Font SF Pro Display Regular. Emoji reaksi dari PNG bundled
+(`assets/emoji/`), bukan font sistem — supaya konsisten di semua
+environment tanpa install tambahan.
 
 ---
 

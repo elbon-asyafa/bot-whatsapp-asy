@@ -11,6 +11,7 @@ CHANGES_2026-08-07.md
 
 # WhatsApp Session Data & Temp files
 auth_info_baileys/
+auth_session/
 temp/
 
 # Logs
