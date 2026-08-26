@@ -328,6 +328,32 @@ async function startBot() {
         return;
       }
 
+      // Foto dengan caption /alert: broadcast gambar+caption ke semua user/grup (owner only)
+      if (msg.message.imageMessage && captionLower.startsWith("/alert")) {
+        console.log(`[MASUK] ${authorId} -> [foto buat /alert]`);
+        try {
+          await handleCommand(
+            sock,
+            sender,
+            caption.trim(),
+            nomorAsli,
+            authorId,
+            isGroup,
+            mentionedJid,
+            pushName,
+            null,
+            msg
+          );
+          console.log(`[SELESAI] Alert gambar dari ${authorId} udah diproses.`);
+        } catch (err) {
+          console.error(`[ERROR] Gagal proses alert gambar dari ${authorId}:`, err);
+          await sock.sendMessage(sender, {
+            text: "⚠️ Gagal broadcast alert gambarnya. Coba lagi ya.",
+          });
+        }
+        return;
+      }
+
       // Foto dengan caption /ai: analisis gambar pakai AI vision
       if (msg.message.imageMessage && captionLower.startsWith("/ai")) {
         console.log(`[MASUK] ${authorId} -> [foto buat /ai]`);
@@ -612,7 +638,7 @@ async function handleCommand(
         `*/adminhapususer [nama]* — hapus akun user manapun (hanya chat pribadi)\n` +
         `*/testreminder* — tes kirim reminder sekarang juga (hanya chat pribadi)\n` +
         `*/ping [text]* — tag semua member grup (hanya di grup)\n` +
-        `*/alert [text]* — kirim info ke semua user & grup aktif\n` +
+        `*/alert [text]* — kirim info ke semua user & grup aktif (bisa juga foto+caption /alert [text])\n` +
         `*/botonline* — aktifkan bot di grup ini (hanya di grup)\n` +
         `*/botoffline* — nonaktifkan bot di grup ini (hanya di grup)\n` +
         `*/allreminder [on/off]* — nyalain/matiin reminder buat semua user sekaligus, tanpa argumen buat cek status\n`
@@ -1347,18 +1373,34 @@ async function handleCommand(
         return sock.sendMessage(sender, { text: "Command ini cuma buat pemilik bot." });
       }
 
+      const adaGambar = !!msg?.message?.imageMessage;
       const pesanAlert = args.trim();
-      if (!pesanAlert) {
+      if (!pesanAlert && !adaGambar) {
         return sock.sendMessage(sender, {
-          text: "Format: /alert [text]\nContoh: /alert ada maintenance jam 2 malam",
+          text:
+            "Format: /alert [text]\nContoh: /alert ada maintenance jam 2 malam\n\n" +
+            "Bisa juga kirim foto dengan caption /alert [text] buat broadcast gambar+caption.",
         });
       }
 
-      const teksAlert = `⚠️ *Alert dari admin*:\n\n${pesanAlert}`;
+      const labelAlert = "📢 *Update Announcement!!*";
+      const teksAlert = pesanAlert ? `${labelAlert}\n\n${pesanAlert}` : labelAlert;
+
+      let gambarBuffer = null;
+      if (adaGambar) {
+        try {
+          gambarBuffer = await downloadMediaMessage(msg, "buffer", {});
+        } catch (e) {
+          console.error("[ALERT] Gagal download gambar:", e);
+          return sock.sendMessage(sender, { text: "⚠️ Gagal download gambarnya. Coba lagi ya." });
+        }
+      }
 
       const users = await sheets.getAllUsers();
       let kirimKeUser = 0;
       let kirimKeGrup = 0;
+
+      const kirimPesan = async (jid, opts) => sock.sendMessage(jid, opts);
 
       // 1. Fetch all groups ONCE, build Set of ALL participant JIDs
       const semuaGrup = await sock.groupFetchAllParticipating();
@@ -1373,7 +1415,11 @@ async function handleCommand(
       for (const user of users) {
         if (!allGroupJids.has(user.jid)) {
           try {
-            await sock.sendMessage(user.jid, { text: teksAlert });
+            if (gambarBuffer) {
+              await kirimPesan(user.jid, { image: gambarBuffer, caption: teksAlert });
+            } else {
+              await kirimPesan(user.jid, { text: teksAlert });
+            }
             kirimKeUser++;
           } catch (e) {
             console.error(`[ALERT] Gagal kirim ke ${user.jid}: ${e.message}`);
@@ -1388,7 +1434,11 @@ async function handleCommand(
 
         const participantJids = grup.participants.map((p) => p.id);
         try {
-          await sock.sendMessage(grup.id, { text: teksAlert, mentions: participantJids });
+          if (gambarBuffer) {
+            await kirimPesan(grup.id, { image: gambarBuffer, caption: teksAlert, mentions: participantJids });
+          } else {
+            await kirimPesan(grup.id, { text: teksAlert, mentions: participantJids });
+          }
           kirimKeGrup++;
         } catch (e) {
           console.error(`[ALERT] Gagal kirim ke grup ${grup.id}: ${e.message}`);
