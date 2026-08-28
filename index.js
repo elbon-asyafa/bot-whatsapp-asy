@@ -830,11 +830,14 @@ async function handleCommand(
 
       await sock.sendMessage(sender, { text: statusText });
 
-      const tempDir = path.join(__dirname, "temp");
-      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+      const tempRoot = path.join(__dirname, "temp");
+      if (!fs.existsSync(tempRoot)) fs.mkdirSync(tempRoot, { recursive: true });
+      // Satu folder khusus per request agar download yang berjalan bersamaan
+      // tidak pernah mengambil file dari request lain.
+      const tempDir = fs.mkdtempSync(path.join(tempRoot, "download-"));
       const prefix = format === "mp3" ? "audio" : "video";
       const ext = format;
-      const outputPath = path.join(tempDir, `${prefix}_${Date.now()}.${ext}`);
+      const outputPath = path.join(tempDir, `${prefix}.${ext}`);
 
       let usedFallback = false;
       let fallbackInfo = null;
@@ -881,10 +884,10 @@ async function handleCommand(
           );
           try {
             if (format === "mp3") {
-              const tempVideoPath = path.join(tempDir, `tiktok_tmp_${Date.now()}.mp4`);
+              const tempVideoPath = path.join(tempDir, "tiktok_tmp.mp4");
               fallbackInfo = await downloadTiktokFallback(url, tempVideoPath);
               await convertToMp3(tempVideoPath, outputPath);
-              fs.unlinkSync(tempVideoPath);
+              fs.rmSync(tempVideoPath, { force: true });
             } else {
               fallbackInfo = await downloadTiktokFallback(url, outputPath);
             }
@@ -896,20 +899,9 @@ async function handleCommand(
           }
         }
 
-        const files = fs.readdirSync(tempDir).filter((f) => f.startsWith(prefix));
-        const finalFile = files.find((f) => f.endsWith(`.${ext}`));
-        if (!finalFile) {
-          const fallback = files[0];
-          if (fallback) {
-            const fallbackPath = path.join(tempDir, fallback);
-            const buf = fs.readFileSync(fallbackPath);
-            const kirimOpts = { [format === "mp3" ? "audio" : "video"]: buf };
-            if (format === "mp3") kirimOpts.mimetype = "audio/mpeg";
-            if (customCaption) kirimOpts.caption = customCaption;
-            await sock.sendMessage(sender, kirimOpts);
-            fs.unlinkSync(fallbackPath);
-            return;
-          }
+        // Hanya kirim outputPath milik request ini; jangan scan folder temp
+        // berdasarkan prefix yang bisa menemukan file request lain.
+        if (!fs.existsSync(outputPath)) {
           return sock.sendMessage(sender, {
             text: "Gagal download, kemungkinan konten nggak tersedia atau link nggak valid.",
           });
@@ -921,19 +913,17 @@ async function handleCommand(
           );
         }
 
-        const finalPath = path.join(tempDir, finalFile);
         if (format === "mp3") {
-          const audioBuffer = fs.readFileSync(finalPath);
+          const audioBuffer = fs.readFileSync(outputPath);
           const kirimOpts = { audio: audioBuffer, mimetype: "audio/mpeg" };
           if (customCaption) kirimOpts.caption = customCaption;
           await sock.sendMessage(sender, kirimOpts);
         } else {
-          const videoBuffer = fs.readFileSync(finalPath);
+          const videoBuffer = fs.readFileSync(outputPath);
           const kirimOpts = { video: videoBuffer };
           if (customCaption) kirimOpts.caption = customCaption;
           await sock.sendMessage(sender, kirimOpts);
         }
-        fs.unlinkSync(finalPath);
       } catch (e) {
         const extraHelp =
           format === "mp3"
@@ -951,6 +941,9 @@ async function handleCommand(
         return sock.sendMessage(sender, {
           text: `Gagal download: ${e.message}\n\nPastiin "yt-dlp" udah keinstall di komputer bot ya (cek README).${extraHelp}${impersonationHelp}${tiktokFallbackHelp}`,
         });
+      } finally {
+        // Bersihkan semua artefak request ini, termasuk saat proses gagal.
+        fs.rmSync(tempDir, { recursive: true, force: true });
       }
       return;
     }
