@@ -41,9 +41,17 @@ Sheet lain (`Users`, `Keuangan_<nama>`, dst) **dibuat otomatis oleh bot**.
 **Gemini API Key:** https://aistudio.google.com/apikey → Create API Key.
 
 **File `.env`:**
+
+Linux:
 ```bash
 cp .env.example .env
 ```
+
+Windows PowerShell:
+```powershell
+Copy-Item .env.example .env
+```
+
 Isi `GEMINI_API_KEY`, `SPREADSHEET_ID`, `OWNER_NUMBERS` (JID kamu — cara
 dapetin: jalankan bot, chat `/help`, lihat log `[MASUK] <jid> -> /help`).
 `ALLOWED_NUMBERS` boleh dikosongkan (semua yang `/daftarbot` langsung dapat akses).
@@ -99,14 +107,85 @@ sudo docker system prune -a --volumes   # bersihin disk penuh
 
 Cocok untuk development lokal.
 
-**Windows:**
-1. Install [Node.js 20+ LTS](https://nodejs.org/).
-2. Install FFmpeg & yt-dlp: `winget install Gyan.FFmpeg` dan `winget install yt-dlp.yt-dlp` (atau download manual `yt-dlp.exe` ke root project).
-3. `npm install --legacy-peer-deps`
-4. `node index.js` — scan QR yang muncul di terminal.
-5. Opsional jalan di background: `npm install -g pm2` → `pm2 start index.js --name wa-bot`
+### Windows (native)
 
-**Linux (Arch):**
+Jalankan perintah berikut dari PowerShell. Node.js dan Git hanya perlu
+di-install kalau belum ada:
+
+```powershell
+winget install --source winget --exact --id OpenJS.NodeJS.LTS
+winget install --source winget --exact --id Git.Git
+winget install --source winget --exact --id Gyan.FFmpeg
+winget install --source winget --exact --id yt-dlp.yt-dlp
+```
+
+Tutup dan buka ulang terminal setelah instalasi supaya `PATH` terbaru terbaca,
+lalu verifikasi:
+
+```powershell
+node --version
+npm.cmd --version
+ffmpeg -version
+ffprobe -version
+yt-dlp --version
+```
+
+Node.js wajib versi 20+. Python, Cairo, dan Visual Studio Build Tools biasanya
+tidak diperlukan karena `canvas` dan `sharp` menyediakan binary Windows.
+
+Install dependency project dari root repository:
+
+```powershell
+npm.cmd ci --legacy-peer-deps
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\install-fonts.ps1
+```
+
+Project menyertakan `.npmrc` untuk mengizinkan dependency Git yang dikunci oleh
+Baileys. Ini diperlukan oleh npm 12; tanpa itu clean install gagal dengan
+`EALLOWGIT`. `npm.cmd` dipakai karena sebagian instalasi Windows memblokir
+`npm.ps1` lewat PowerShell Execution Policy.
+
+Pastikan `.env` dan `service-account.json` sudah ada, lalu lakukan login pertama:
+
+```powershell
+node index.js
+```
+
+Scan QR melalui WhatsApp: **Perangkat Tertaut -> Tautkan Perangkat**. Folder
+`auth_session/` dibuat otomatis setelah login, jadi tidak perlu dibuat atau
+dipindahkan sebelumnya. Tekan `Ctrl+C` untuk mematikan proses manual.
+
+#### Auto-start Windows
+
+Bot dapat dijalankan otomatis setiap kali user Windows login. Install NSSM
+tidak diperlukan karena repository sudah menyediakan integrasi Task Scheduler:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 install
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 start
+```
+
+Lakukan ini setelah login QR manual berhasil. Kontrol bot selanjutnya:
+
+```powershell
+# Cek status
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 status
+
+# Matikan
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 stop
+
+# Nyalakan lagi
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 start
+
+# Hapus auto-start
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 uninstall
+```
+
+Log proses otomatis disimpan di `logs/bot-YYYY-MM-DD.log`. Jangan menjalankan
+proses manual dan Task Scheduler bersamaan karena keduanya memakai sesi
+WhatsApp yang sama.
+
+### Linux (Arch)
 ```bash
 sudo pacman -Syu
 sudo pacman -S nodejs npm yt-dlp ffmpeg fontconfig noto-fonts-emoji
@@ -114,7 +193,7 @@ npm install --legacy-peer-deps
 node index.js
 ```
 
-**Linux (Debian/Ubuntu):**
+### Linux (Debian/Ubuntu)
 ```bash
 sudo apt install nodejs npm ffmpeg fontconfig fonts-noto-color-emoji
 pip3 install --break-system-packages -U yt-dlp
@@ -162,11 +241,16 @@ bot-whatsapp-asy/
 ├── package.json / package-lock.json
 ├── Dockerfile
 ├── update.sh                  # (opsional, dibuat sendiri) skrip redeploy
+├── .npmrc                       # Izin dependency Git Baileys untuk npm 12+
 ├── .env                          # JANGAN commit
 ├── .env.example
 ├── service-account.json           # JANGAN commit (di-gitignore)
 ├── auth_session/                    # Sesi login WA (auto-generated, jangan hapus sembarangan)
 ├── temp/                              # File temporary /download (auto terhapus)
+├── windows/
+│   ├── install-fonts.ps1                # Daftarkan font bundled ke Windows
+│   ├── manage-bot.ps1                  # Install/start/stop auto-start Windows
+│   └── run-bot.ps1                     # Runner Task Scheduler + logging
 ├── fonts/
 │   ├── arialnarrow.ttf                 # Font stiker Brat
 │   └── sfprodisplayregular.otf          # Font /fakechat
@@ -183,13 +267,19 @@ bot-whatsapp-asy/
 ```bash
 # Docker:
 sudo docker exec -it bot-wa-running rm -rf /app/auth_session && sudo docker restart bot-wa-running
-# Tanpa Docker:
+# Linux tanpa Docker:
 rm -rf auth_session && node index.js
+```
+
+```powershell
+# Windows tanpa Docker:
+Remove-Item -LiteralPath .\auth_session -Recurse -Force
+node index.js
 ```
 
 **`Stream Errored (ack)` sering muncul** — bug internal library Baileys
 (auto-reconnect, bot tetap jalan). Pastikan cuma 1 instance bot yang jalan
-(lihat peringatan di Bagian 2), dan `npm install` buat pastiin versi
+(lihat peringatan di Bagian 2), dan `npm ci --legacy-peer-deps` buat pastiin versi
 Baileys terbaru.
 
 **`EBADENGINE`** — Node.js kurang dari v20, update dulu.
@@ -197,9 +287,29 @@ Baileys terbaru.
 **`ERESOLVE` / konflik peer-dependency saat `npm install`** — selalu pakai
 `--legacy-peer-deps`:
 ```bash
-rm -rf node_modules package-lock.json
-npm install --legacy-peer-deps
+rm -rf node_modules
+npm ci --legacy-peer-deps
 ```
+
+Windows PowerShell (jangan hapus `package-lock.json` untuk install normal):
+```powershell
+Remove-Item -LiteralPath .\node_modules -Recurse -Force
+npm.cmd ci --legacy-peer-deps
+```
+
+**PowerShell menolak `npm.ps1` karena execution policy** — gunakan `npm.cmd`
+seperti pada contoh Windows. Tidak perlu menurunkan kebijakan keamanan sistem.
+
+**`Cannot find module 'canvas'` atau `Cannot find module
+'../build/Release/canvas.node'` di Windows:**
+```powershell
+npm.cmd rebuild canvas --foreground-scripts
+node -e "require('canvas'); console.log('canvas OK')"
+```
+
+Kalau clean install dengan npm 12 menampilkan `EALLOWGIT`, pastikan file
+`.npmrc` dari repository tidak hilang, lalu ulangi `npm.cmd ci
+--legacy-peer-deps`.
 
 **Docker: `failed to connect to the docker API`** — daemon belum jalan:
 ```bash
@@ -221,7 +331,8 @@ nyesuain diri. YouTube & platform lain harusnya nggak kena isu ini.
    ```
 2. Error `Cannot find module '../build/Release/canvas.node'` → `npm rebuild canvas --legacy-peer-deps`
 3. `/fakechat` emoji-nya pakai PNG bundled di `assets/emoji/` (bukan font sistem), jadi harusnya selalu muncul berwarna tanpa install tambahan — kalau error, cek folder `assets/emoji/` dan `fonts/sfprodisplayregular.otf` ada di project.
-4. `/bratvid` nggak bergerak → cek `ffmpeg` support webp: `ffmpeg -codecs | grep webp`
+4. `/bratvid` nggak bergerak -> cek dukungan WebP dengan `ffmpeg -codecs`. Di
+   Windows PowerShell bisa difilter dengan `ffmpeg -codecs | Select-String webp`.
 
 **`Kamu belum terdaftar` padahal sudah `/daftarbot`** — JID `@lid` kadang
 berubah antar sesi (isu belum ke-root-cause sepenuhnya). Coba
