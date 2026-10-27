@@ -11,12 +11,63 @@ function message(value, chat = '12000@g.us', extra = {}) {
 }
 function setup(deps) {
   const sent = [];
+  const records = [];
+  const logger = {
+    info: (fields, message) => records.push({ level: 'info', ...fields, message }),
+    error: (fields, message) => records.push({ level: 'error', ...fields, message }),
+  };
   const sock = { sendMessage: async (chat, body) => { sent.push({ chat, body }); }, groupMetadata: async () => ({ participants: [
     { id: '628999999999@s.whatsapp.net', admin: 'admin' }, { id: '628111111111@s.whatsapp.net', admin: null },
   ] }) };
-  const handler = createHandler(deps);
-  return { sent, sock, call: (...messages) => handler(sock, { type: 'notify', messages }) };
+  const handler = createHandler({ logger, ...deps });
+  return { sent, sock, records, call: (...messages) => handler(sock, { type: 'notify', messages }) };
 }
+
+test('conversation logs include sender, alternate phone, exact input and every reply', async () => {
+  const { records, call } = setup({ ai: async () => 'Jawaban\nbaris kedua' });
+  const input = message('/ai halo', undefined, { participant: '999@lid', participantAlt: '628111111111@s.whatsapp.net' });
+  input.pushName = 'Asy';
+  await call(input, input);
+  assert.equal(records.length, 2);
+  assert.deepEqual(records[0].sender, { name: 'Asy', jid: '999@lid', phone: '+628111111111' });
+  assert.equal(records[0].content.text, '/ai halo');
+  assert.equal(records[1].content.text, 'Jawaban\nbaris kedua');
+  assert.equal(records[1].target, '12000@g.us');
+  assert.equal(records[1].messageId, input.key.id);
+  assert.equal(records[1].status, 'terkirim');
+  assert(records[1].durationMs >= 0);
+});
+
+test('ordinary messages are logged without replying or inventing a phone from a LID', async () => {
+  const { records, sent, call } = setup();
+  await call(message('halo', '999@lid'));
+  assert.equal(sent.length, 0);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].sender.phone, null);
+  assert.equal(records[0].chatType, 'pribadi');
+  assert.match(records[0].status, /bukan command/);
+});
+
+test('media responses log their type without including binary content', async () => {
+  const { records, call } = setup({ brat: async () => Buffer.from('private binary'), sticker: async b => b });
+  await call(message('/brat halo'));
+  assert.deepEqual(records[1].content, { type: 'stiker', text: '' });
+  assert(!JSON.stringify(records).includes('private binary'));
+});
+
+test('failed AI requests and failed sends retain conversation context', async () => {
+  const first = setup({ ai: async () => { throw new Error('AI offline'); } });
+  await first.call(message('/ai halo'));
+  assert(first.records.some(record => record.err?.message === 'AI offline' && record.sender.phone === '+628111111111'));
+  assert(first.records.some(record => record.event === 'message.sent' && /Gagal memproses/.test(record.content.text)));
+  const second = setup();
+  second.sock.sendMessage = async () => { throw new Error('Disconnected'); };
+  await second.call(message('/help'));
+  const failure = second.records.find(record => record.event === 'message.send_failed');
+  assert.equal(failure.status, 'gagal dikirim');
+  assert.equal(failure.err.message, 'Disconnected');
+  assert(!second.records.some(record => record.event === 'message.sent'));
+});
 
 test('group and private utilities work immediately, without registration or activation', async () => {
   const { sent, call } = setup({ brat: async () => Buffer.from('brat'), sticker: async b => b });

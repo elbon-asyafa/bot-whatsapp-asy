@@ -4,6 +4,7 @@ const { config, normalizeJid } = require('./lib/config');
 const { rememberIdentity, isOwner } = require('./lib/access');
 const { text, serial } = require('./lib/validation');
 const { download, validateUrl } = require('./lib/download');
+const { phoneNumber, describeMessage } = require('./lib/chat-log');
 
 const MAX_IMAGE = 10 * 1024 * 1024;
 const COMMANDS = new Set(['/help', '/ai', '/download', '/stiker', '/sticker', '/brat', '/bratvid', '/fakechat', '/kirim', '/ping']);
@@ -31,6 +32,7 @@ function help(owner) {
 }
 
 function createHandler(deps = {}) {
+  const appLog = deps.logger || require('./lib/logger').createLogger();
   const media = deps.downloadMediaMessage;
   const downloadFile = deps.download || download;
   const ai = deps.ai || ((...args) => require('./gemini').tanyaAI(...args));
@@ -66,12 +68,6 @@ function createHandler(deps = {}) {
     if (!author) return;
     rememberIdentity(author, group ? msg.key.participantAlt : msg.key.remoteJidAlt);
     const content = unwrap(msg.message);
-    const raw = (content.conversation || content.extendedTextMessage?.text || content.imageMessage?.caption || '').trim();
-    if (!raw.startsWith('/')) return;
-    const match = raw.match(/^(\S+)(?:\s+([\s\S]*))?$/);
-    const cmd = match[1].toLowerCase();
-    const args = (match[2] || '').trim();
-    const reply = value => sock.sendMessage(chat, { text: value });
     // Suppress replayed deliveries without dropping other messages from the batch.
     const messageId = msg.key.id && `${chat}:${author}:${msg.key.id}`;
     if (messageId && seen.has(messageId)) return;
@@ -79,19 +75,47 @@ function createHandler(deps = {}) {
       seen.set(messageId, Date.now());
       while (seen.size > 2000) seen.delete(seen.keys().next().value);
     }
-    if (cmd === '/help') return reply(help(isOwner(author)));
-    if (REMOVED.has(cmd)) return reply('Fitur ini sudah dihapus. Bot sekarang langsung dipakai tanpa daftar. Ketik /help.');
-    if (!COMMANDS.has(cmd)) return reply('Command belum tersedia. Ketik /help.');
-    if (args.length > 4000) return reply('Pesan terlalu panjang, maksimal 4000 karakter.');
+    const receivedAt = Date.now();
+    const raw = (content.conversation || content.extendedTextMessage?.text || content.imageMessage?.caption || content.videoMessage?.caption || content.documentMessage?.caption || '').trim();
+    const conversation = {
+      messageId: msg.key.id,
+      chat, chatType: group ? 'grup' : 'pribadi',
+      sender: { name: msg.pushName || 'Nama tidak tersedia', jid: author,
+        phone: phoneNumber(author, group ? msg.key.participantAlt : msg.key.remoteJidAlt) },
+    };
+    appLog.info({ ...conversation, event: 'message.received', content: describeMessage(content),
+      status: raw.startsWith('/') ? 'diproses' : 'tanpa balasan (bukan command)' }, 'Pesan masuk');
+    if (!raw.startsWith('/')) return;
+    const match = raw.match(/^(\S+)(?:\s+([\s\S]*))?$/);
+    const cmd = match[1].toLowerCase();
+    const args = (match[2] || '').trim();
+    async function send(target, body) {
+      const details = { ...conversation, command: cmd, target, content: describeMessage(body) };
+      try {
+        const result = await sock.sendMessage(target, body);
+        appLog.info({ ...details, event: 'message.sent', status: 'terkirim',
+          responseId: result?.key?.id, durationMs: Date.now() - receivedAt }, 'Respons bot terkirim');
+        return result;
+      } catch (error) {
+        appLog.error({ ...details, event: 'message.send_failed', status: 'gagal dikirim',
+          durationMs: Date.now() - receivedAt, err: error }, 'Respons bot gagal dikirim');
+        throw error;
+      }
+    }
+    const reply = value => send(chat, { text: value });
+    if (cmd === '/help') return await reply(help(isOwner(author)));
+    if (REMOVED.has(cmd)) return await reply('Fitur ini sudah dihapus. Bot sekarang langsung dipakai tanpa daftar. Ketik /help.');
+    if (!COMMANDS.has(cmd)) return await reply('Command belum tersedia. Ketik /help.');
+    if (args.length > 4000) return await reply('Pesan terlalu panjang, maksimal 4000 karakter.');
     const now = Date.now();
     const limitKey = `${chat}:${author}`;
     const previous = limits.get(limitKey);
     const limit = previous && now - previous.since < 60000 ? previous : { since: now, count: 0 };
-    if (limit.count >= 6) return reply('Maksimal 6 command per menit. Tunggu sebentar ya.');
+    if (limit.count >= 6) return await reply('Maksimal 6 command per menit. Tunggu sebentar ya.');
     limit.count++;
     limits.set(limitKey, limit);
     while (limits.size > 2000) limits.delete(limits.keys().next().value);
-    if (active >= 2) return reply('Bot sedang mengerjakan request lain. Coba lagi sebentar.');
+    if (active >= 2) return await reply('Bot sedang mengerjakan request lain. Coba lagi sebentar.');
     active++;
     try {
       const context = content.extendedTextMessage?.contextInfo || content.imageMessage?.contextInfo;
@@ -103,14 +127,14 @@ function createHandler(deps = {}) {
         case '/download': {
           const [main, ...captions] = args.split('|');
           const [url, format = 'mp4'] = main.trim().split(/\s+/);
-          if (!url) return reply('Format: /download https://youtu.be/... mp4 | caption opsional');
+          if (!url) return await reply('Format: /download https://youtu.be/... mp4 | caption opsional');
           validateUrl(url);
-          if (!['mp3', 'mp4'].includes(format.toLowerCase())) return reply('Format harus mp3 atau mp4.');
+          if (!['mp3', 'mp4'].includes(format.toLowerCase())) return await reply('Format harus mp3 atau mp4.');
           await reply('Lagi download, tunggu sebentar...');
           await downloadFile(url, format.toLowerCase(), async buffer => {
             const caption = captions.join('|').trim();
             // WhatsApp audio messages do not support a text caption.
-            await sock.sendMessage(chat, format.toLowerCase() === 'mp3'
+            await send(chat, format.toLowerCase() === 'mp3'
               ? { audio: buffer, mimetype: 'audio/mpeg' }
               : { video: buffer, ...(caption ? { caption } : {}) });
             if (format.toLowerCase() === 'mp3' && caption) await reply(caption);
@@ -119,50 +143,50 @@ function createHandler(deps = {}) {
         }
         case '/stiker':
         case '/sticker': {
-          if (!image) return reply('Kirim foto dengan caption /stiker, atau reply foto dengan /stiker [teks atas | teks bawah].');
+          if (!image) return await reply('Kirim foto dengan caption /stiker, atau reply foto dengan /stiker [teks atas | teks bawah].');
           let buffer = await imageBuffer(image);
           if (args) buffer = await meme(buffer, args);
-          return sock.sendMessage(chat, { sticker: await sticker(buffer) });
+          return await send(chat, { sticker: await sticker(buffer) });
         }
         case '/brat':
         case '/bratvid': {
           const value = text(args, 'Teks Brat', 300);
-          if (value.split(/\s+/).length > 30) return reply('Brat maksimal 30 kata.');
-          return sock.sendMessage(chat, { sticker: await sticker(await brat(value, cmd === '/bratvid')) });
+          if (value.split(/\s+/).length > 30) return await reply('Brat maksimal 30 kata.');
+          return await send(chat, { sticker: await sticker(await brat(value, cmd === '/bratvid')) });
         }
         case '/fakechat':
-          return sock.sendMessage(chat, { image: await fakechat(text(args, 'Pesan fakechat', 1000)) });
+          return await send(chat, { image: await fakechat(text(args, 'Pesan fakechat', 1000)) });
         case '/ai': {
-          if (!args && !image) return reply('Format: /ai [pertanyaan], bisa foto dengan caption /ai atau reply foto.');
+          if (!args && !image) return await reply('Format: /ai [pertanyaan], bisa foto dengan caption /ai atau reply foto.');
           const picture = image ? { buffer: await imageBuffer(image), mimeType: unwrap(image.message).imageMessage.mimetype || 'image/jpeg' } : undefined;
-          return reply(await ai(args, picture));
+          return await reply(await ai(args, picture));
         }
         case '/ping': {
-          if (!group) return reply('/ping dipakai di grup oleh admin grup atau owner bot.');
+          if (!group) return await reply('/ping dipakai di grup oleh admin grup atau owner bot.');
           const metadata = await sock.groupMetadata(chat);
           const member = metadata.participants.find(p => [p.id, p.phoneNumber, p.lid].includes(author) || (msg.key.participantAlt && [p.id, p.phoneNumber, p.lid].includes(msg.key.participantAlt)));
-          if (!isOwner(author) && !member?.admin) return reply('/ping cuma untuk admin grup atau owner bot.');
-          return sock.sendMessage(chat, { text: `🔔 ${args || 'Halo semuanya!'}`, mentions: metadata.participants.map(p => p.id) });
+          if (!isOwner(author) && !member?.admin) return await reply('/ping cuma untuk admin grup atau owner bot.');
+          return await send(chat, { text: `🔔 ${args || 'Halo semuanya!'}`, mentions: metadata.participants.map(p => p.id) });
         }
         case '/kirim': {
-          if (!isOwner(author)) return reply('/kirim cuma untuk owner bot.');
+          if (!isOwner(author)) return await reply('/kirim cuma untuk owner bot.');
           const [number, ...message] = args.split(/\s+/);
           const target = normalizeJid(number);
-          if (!target.endsWith('@s.whatsapp.net')) return reply('Isi nomor tujuan yang valid, contoh /kirim 628123456789 halo.');
+          if (!target.endsWith('@s.whatsapp.net')) return await reply('Isi nomor tujuan yang valid, contoh /kirim 628123456789 halo.');
           if (quoted.stickerMessage) {
             const buffer = await media({ key: { remoteJid: chat, id: context.stanzaId, participant: context.participant }, message: quoted }, 'buffer', {});
             if (buffer.length > 2 * 1024 * 1024) throw new Error('Stiker terlalu besar.');
-            await sock.sendMessage(target, { sticker: buffer });
+            await send(target, { sticker: buffer });
           } else {
-            if (!message.length) return reply('Format: /kirim 628123456789 [pesan], atau reply stiker.');
-            await sock.sendMessage(target, { text: message.join(' ') });
+            if (!message.length) return await reply('Format: /kirim 628123456789 [pesan], atau reply stiker.');
+            await send(target, { text: message.join(' ') });
           }
-          return reply('Pesan terkirim.');
+          return await reply('Pesan terkirim.');
         }
       }
     } catch (error) {
       // Do not echo external process diagnostics or request URLs into chats.
-      console.error(`[${cmd}]`, error.message);
+      appLog.error({ ...conversation, command: cmd, err: error }, `Gagal memproses ${cmd}`);
       const safe = /^(Gunakan link|Link tidak valid|Format harus|Teks Brat|Pesan fakechat|Pertanyaan|Gambar maksimal|Stiker terlalu|Fitur AI belum|Ada download|Hasil unduhan|Format gambar)/.test(error.message);
       await reply(safe ? error.message : `Gagal memproses ${cmd}. Coba lagi sebentar atau hubungi pemilik bot.`);
     } finally { active--; }
@@ -170,7 +194,7 @@ function createHandler(deps = {}) {
   return async (sock, event) => {
     if (event.type !== 'notify') return;
     for (const msg of event.messages || []) {
-      try { await handle(sock, msg); } catch (error) { console.error('Gagal memproses pesan:', error.message); }
+      try { await handle(sock, msg); } catch (error) { appLog.error({ err: error }, 'Gagal memproses pesan'); }
     }
   };
 }
@@ -204,7 +228,8 @@ async function main() {
   // Keep the supported legacy patch pinned; v7 remains a separate RC migration.
   const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
   const logger = require('./lib/logger').createLogger();
-  const handle = createHandler({ downloadMediaMessage });
+  const waLogger = logger.child({ component: 'wa' }, { level: process.env.LOG_LEVEL || 'warn' });
+  const handle = createHandler({ downloadMediaMessage, logger });
   let socket, retry, stopping = false, failures = 0;
   const save = serial();
   async function connect() {
@@ -215,30 +240,30 @@ async function main() {
     fs.mkdirSync(config.authDir, { recursive: true, mode: 0o700 });
     const { state, saveCreds } = await useMultiFileAuthState(config.authDir);
     // Use Baileys' bundled protocol version rather than fetching a different one on every reconnect.
-    const sock = makeWASocket({ auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) }, logger });
+    const sock = makeWASocket({ auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, waLogger) }, logger: waLogger });
     socket = sock;
     sock.ev.on('creds.update', () => save(saveCreds).catch(fatal));
     sock.ev.on('messages.upsert', event => { if (socket === sock && !stopping) handle(sock, event).catch(fatal); });
     sock.ev.on('connection.update', update => {
       if (socket !== sock || stopping) return;
       if (update.qr) {
-        console.log('WhatsApp > Perangkat tertaut > Tautkan perangkat, lalu scan QR ini:');
+        logger.info('Scan QR: WhatsApp > Perangkat tertaut > Tautkan perangkat.');
         require('qrcode-terminal').generate(update.qr, { small: true });
       }
       if (update.connection === 'open') {
         failures = 0;
-        console.log('Bot tersambung. Command siap dipakai di grup dan chat pribadi. Ketik /help.');
+        logger.info('WhatsApp tersambung. Bot siap di grup dan chat pribadi. Ketik /help.');
       }
       if (update.connection === 'close') {
         const code = update.lastDisconnect?.error?.output?.statusCode;
         if ([DisconnectReason.loggedOut, DisconnectReason.badSession, DisconnectReason.connectionReplaced, DisconnectReason.multideviceMismatch].includes(code)) {
-          console.error(`Sesi WA perlu diperiksa (kode ${code}). Hentikan instance lain atau tautkan ulang sesuai README.`);
+          logger.error(`Sesi WA perlu diperiksa (kode ${code}). Hentikan instance lain atau tautkan ulang sesuai README.`);
           shutdown(78);
           return;
         }
         const pairingRestart = code === DisconnectReason.restartRequired;
         const delay = pairingRestart ? 1000 : Math.min(60000, 3000 * 2 ** Math.min(failures++, 5));
-        console.log(pairingRestart
+        logger.warn(pairingRestart
           ? 'WhatsApp meminta restart koneksi setelah pairing (515). Menyambungkan ulang dengan sesi yang tersimpan...'
           : `Koneksi terputus (${code || 'jaringan'}), coba lagi dalam ${delay / 1000} detik.`);
         clearTimeout(retry);
@@ -255,7 +280,7 @@ async function main() {
     save(async () => {}).finally(() => { release(); process.exit(code); });
     setTimeout(() => process.exit(code), 5000).unref();
   }
-  function fatal(error) { console.error('Bot berhenti:', error.message); shutdown(1); }
+  function fatal(error) { logger.fatal({ err: error }, 'Bot berhenti'); shutdown(1); }
   process.once('SIGINT', () => shutdown());
   process.once('SIGTERM', () => shutdown());
   process.once('uncaughtException', fatal);
@@ -263,5 +288,5 @@ async function main() {
   await connect();
 }
 
-if (require.main === module) main().catch(error => { console.error('Startup gagal:', error.message); process.exitCode = 1; });
+if (require.main === module) main().catch(error => { require('./lib/logger').createLogger().fatal({ err: error }, 'Startup gagal'); process.exitCode = 1; });
 module.exports = { createHandler, unwrap, help, acquireLock };

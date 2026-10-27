@@ -204,3 +204,31 @@ unduhan jaringan; koneksi nyata harus diverifikasi saat login.
 
 Baileys dipin pada patch legacy 6.7.24. v7 upstream masih RC dan tidak
 ditingkatkan otomatis.
+
+
+## Log
+
+Default terminal memakai format `17:45:00 WARN WA | pesan`, tanpa JSON panjang,
+PID, hostname, atau buffer pesan. Status koneksi aplikasi tetap terlihat.
+Pesan masuk (termasuk yang bukan command) dicatat dengan nama pengirim, nomor
+telepon jika tersedia, ID WhatsApp, jenis chat grup/pribadi, ID pesan, dan isi
+teks/caption lengkap. Jika WhatsApp hanya memberikan LID tanpa nomor alternatif,
+nomor ditandai belum tersedia; LID tidak dianggap sebagai nomor telepon.
+Setiap balasan bot mencatat tujuan, isi teks atau jenis media, status berhasil/gagal
+dikirim, dan waktu sejak pesan diterima. Status terkirim berarti pengiriman oleh
+socket berhasil, bukan tanda pesan sudah dibaca. Buffer media tidak dicetak.
+Pesan lama, pesan bot sendiri, dan pengiriman ulang dengan ID yang sama dilewati.
+Log percakapan memuat nomor dan isi chat; batasi akses serta berhati-hati saat membagikannya.
+Timeout 408 khusus `init queries` ditampilkan sebagai warning; pengulangannya
+diringkas selama 5 menit. Ini bukan bukti bot terputus: periksa `/help` jika
+command tidak merespons. Request awal Baileys tetap berjalan, tidak dinonaktifkan.
+
+Untuk investigasi, set `LOG_LEVEL=debug` di `.env`; stack error akan tampil
+dan timeout tidak diringkas. `LOG_FORMAT=json` menampilkan log terstruktur.
+Restart bot setelah mengubah konfigurasi. Jangan bagikan log debug mentah
+karena metadata koneksi bisa memuat identitas WhatsApp.
+
+`.gitignore` melindungi `.env`, sesi WA, lock, `.tools`, dependency, hasil
+unduhan dan log. Jika memakai `AUTH_DIR` dengan nama folder khusus, tambahkan
+folder itu ke `.gitignore` dan `.dockerignore`. Ignore tidak menghapus file
+rahasia yang telanjur masuk riwayat Git.
