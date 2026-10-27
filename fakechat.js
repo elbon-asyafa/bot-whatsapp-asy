@@ -274,6 +274,7 @@ async function generateFakeChat(script) {
   const LINE_HEIGHT = 38;
   const maxTextWidth = BUBBLE_MAX_WIDTH - BUBBLE_PADDING_X * 2;
   const lines = wrapText(mctx, isi, maxTextWidth);
+  if (lines.length > 15) throw new Error("Pesan fakechat terlalu panjang untuk gambar. Maksimal 15 baris.");
   const textWidth = Math.max(...lines.map((l) => mctx.measureText(l).width), 40);
   const bubbleWidth = Math.min(BUBBLE_MAX_WIDTH, Math.max(230, textWidth + BUBBLE_PADDING_X * 2 + 64));
   const bubbleHeight = lines.length * LINE_HEIGHT + 60;

@@ -25,3 +25,9 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Runtime lock
+.bot.lock
+
+# Downloaded tools (install with npm run setup:downloader)
+.tools/

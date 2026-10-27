@@ -1,346 +1,206 @@
 # Bot WhatsApp ASY
 
-Bot WhatsApp multi-user berbasis Node.js: catat keuangan & to-do ke Google
-Sheets, reminder & alarm custom, scan struk pakai AI, stiker (biasa & Brat),
-download video YouTube/TikTok, generator fake chat screenshot, forward
-pesan, dan asisten AI (Gemini) yang bisa ngobrol bebas atau menjalankan aksi
-lewat bahasa natural.
+Bot utilitas untuk **grup dan chat pribadi**. Langsung ketik command setelah
+nomor bot tersambung; tidak perlu daftar, allowlist, atau aktivasi grup.
+Tidak menggunakan Google Sheets, service account, database, keuangan,
+todo, alarm, reminder, atau scan struk.
 
-Repo: https://github.com/elbon-asyafa/bot-whatsapp-asy
+## Command
 
-> Bisa jalan di **Windows maupun Linux** tanpa Docker (Bagian 3). Panduan
-> Docker (Bagian 2) khusus **Linux** (`systemctl`/`bash`).
+| Command | Fungsi |
+|---|---|
+| `/help` | Tampilkan bantuan |
+| `/download [link] [mp4/mp3] \| [caption]` | Download YouTube/TikTok, default MP4 |
+| Foto + caption `/stiker [atas \| bawah]` | Stiker foto, dengan teks opsional |
+| Reply foto + `/stiker` atau `/sticker` | Stiker dari foto yang dibalas |
+| `/brat [teks]` | Stiker teks statis |
+| `/bratvid [teks]` | Stiker teks animasi kata per kata |
+| `/fakechat [pesan] \| [21.30]` | Gambar fakechat dengan jam opsional |
+| `/ai [pertanyaan]` | Jawaban Gemini, memerlukan API key |
+| Foto + caption `/ai [pertanyaan]` atau reply foto | Analisis gambar dengan Gemini |
+| `/ping [pesan]` | Tag semua anggota; khusus admin grup atau owner bot |
+| `/kirim [628...] [pesan]` atau reply stiker + `/kirim [628...]` | Forward; khusus owner bot |
 
-## Daftar Isi
+Semua fitur umum tersedia untuk siapa saja di grup dan chat pribadi. Bot
+mengabaikan pesan yang dikirim dari akun bot sendiri, status, dan channel.
+Uji command dari akun WhatsApp lain. Grup tidak memerlukan `/botonline`.
+`/alert` dan command admin untuk user/reminder dihapus bersama fitur lama.
 
-1. [Setup Awal (Google Sheets, Gemini, `.env`)](#1-setup-awal)
-2. [Menjalankan dengan Docker](#2-menjalankan-dengan-docker)
-3. [Menjalankan Tanpa Docker](#3-menjalankan-tanpa-docker)
-4. [Semua Command](#4-semua-command)
-5. [Struktur File](#5-struktur-file)
-6. [Troubleshooting](#6-troubleshooting)
+AI hanya menjawab pesan saat itu, tanpa history tersimpan atau akses aksi bot.
+Pesan/gambar yang dikirim dengan `/ai` diteruskan ke Gemini. Bot tidak
+mengunggah chat lain. Command dan isi chat tidak dicatat rutin di terminal;
+log error dapat berisi diagnostik dari dependency, jadi jangan bagikan log
+mentah tanpa memeriksanya.
 
----
+Batas: 6 command berat per menit per pengirim per chat, 2 pekerjaan bersamaan,
+1 download bersamaan, gambar 10 MB, download 60 MB/15 menit/3 menit waktu
+proses, dan Brat maksimal 300 karakter/30 kata. Caption MP3 dikirim sebagai
+pesan terpisah karena pesan audio WA tidak memiliki caption teks.
 
-## 1. Setup Awal
+## Menjalankan di Linux Mint
+
+Gunakan **Node.js 24 LTS**. Pada mesin yang diaudit, Node 24 sudah terpasang.
+Jika memakai nvm, jalankan `nvm install` lalu `nvm use` dari folder repo.
+
+Pasang paket sistem dari terminal (memerlukan password sudo lokal):
 
 ```bash
-git clone https://github.com/elbon-asyafa/bot-whatsapp-asy.git
-cd bot-whatsapp-asy
+sudo apt update
+sudo apt install ffmpeg fontconfig fonts-noto-color-emoji
 ```
 
-**Google Cloud & Sheets:**
-1. https://console.cloud.google.com → project baru → enable **Google Sheets API**.
-2. **IAM & Admin → Service Accounts → Create** → tab **Keys → Add Key → JSON**.
-3. Rename file JSON yang terdownload jadi **`service-account.json`**, taruh di root project.
-4. Buat spreadsheet baru → **Share** ke email `client_email` dari file JSON tadi (akses **Editor**).
-5. Copy **Spreadsheet ID** dari URL: `docs.google.com/spreadsheets/d/`**`ID`**`/edit`.
+Pasang dependency dan downloader:
 
-Sheet lain (`Users`, `Keuangan_<nama>`, dst) **dibuat otomatis oleh bot**.
+```bash
+npm ci --legacy-peer-deps
+npm run setup:downloader
+```
 
-**Gemini API Key:** https://aistudio.google.com/apikey → Create API Key.
+Installer downloader mengambil rilis stable resmi yt-dlp, memverifikasi
+SHA-256, dan memasangnya di `.tools/` dalam repo. Tidak mengubah Python atau
+yt-dlp sistem. Jalankan kembali command itu untuk memperbarui downloader.
+Binary Linux x64 sudah menyertakan dependensi downloader/EJS; Node 24
+project dipakai sebagai JS runtime. [Rujukan upstream](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+Untuk arsitektur Linux lain, installer memakai binary Python zipimport;
+Python 3 yang kompatibel perlu tersedia. Windows memakai executable Windows.
 
-**File `.env`:**
+Jika canvas tidak dapat memakai binary bawaan dan perlu build dari source:
 
-Linux:
+```bash
+sudo apt install build-essential python3 pkg-config libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+npm rebuild canvas --foreground-scripts
+```
+
+Konfigurasi opsional:
+
 ```bash
 cp .env.example .env
 ```
 
-Windows PowerShell:
-```powershell
-Copy-Item .env.example .env
-```
+- `GEMINI_API_KEY`: isi hanya jika ingin `/ai`; ambil dari [Google AI Studio](https://aistudio.google.com/apikey).
+- `GEMINI_MODEL`: default `gemini-3.1-flash-lite`.
+- `OWNER_NUMBERS`: nomor owner, contoh `6281234567890`, pisah koma jika lebih dari satu. Bisa juga JID `12345@lid`. Hanya diperlukan untuk `/kirim` atau hak owner pada `/ping`.
+- `YT_DLP_PATH` / `FFMPEG_PATH`: opsional, path executable tanpa argumen. Jika `YT_DLP_PATH` kosong, `.tools/yt-dlp` diprioritaskan sebelum PATH sistem.
+- `AUTH_DIR`: default `auth_session`, relatif terhadap folder repo.
 
-Isi `GEMINI_API_KEY`, `SPREADSHEET_ID`, `OWNER_NUMBERS` (JID kamu — cara
-dapetin: jalankan bot, chat `/help`, lihat log `[MASUK] <jid> -> /help`).
-`ALLOWED_NUMBERS` boleh dikosongkan (semua yang `/daftarbot` langsung dapat akses).
+Tanpa `.env`, fitur non-AI sudah bisa dipakai. Jangan kirim key atau isi sesi
+WA ke chat dan jangan commit file tersebut. `.env` lama dengan pengaturan
+Sheets tidak lagi dibaca untuk fitur lama; ganti dengan template baru jika
+menginginkan konfigurasi yang bersih.
 
-**Jangan pernah commit** `.env` atau `service-account.json`.
-
----
-
-## 2. Menjalankan dengan Docker
-
-Direkomendasikan untuk server/VPS — auto-restart kalau crash/reboot.
+Periksa instalasi:
 
 ```bash
+npm run check
+npm test
+npm start
+```
+
+Scan QR dari HP: **WhatsApp → Perangkat tertaut → Tautkan perangkat**.
+Setelah muncul pesan tersambung, kirim `/help` dari akun lain. Tidak ada
+operasi Google Sheets saat startup. Spreadsheet lama di akun Google tetap
+utuh; aplikasi ini tidak menghapus atau memigrasikannya.
+
+## Auto-start Linux Mint
+
+Lakukan setelah login QR manual berhasil. Hentikan proses manual dengan
+Ctrl+C sebelum menyalakan service:
+
+```bash
+node linux/manage-bot.js install
+node linux/manage-bot.js start
+node linux/manage-bot.js status
+node linux/manage-bot.js logs
+```
+
+Kontrol lainnya:
+
+```bash
+node linux/manage-bot.js stop
+node linux/manage-bot.js restart
+node linux/manage-bot.js uninstall
+```
+
+Service berjalan sebagai user biasa, otomatis saat login, dengan Node dari
+instalasi yang sedang dipakai. Jika path Node berubah setelah upgrade nvm,
+install ulang unit. Script menolak menimpa unit yang berbeda: backup atau
+hapus file `~/.config/systemd/user/bot-whatsapp-asy.service` lama lebih dulu.
+Bot berhenti bekerja selama PC mati/suspend. Untuk berjalan sejak boot tanpa
+login, user dapat mengaktifkan linger secara eksplisit:
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
+
+Bot memakai `.bot.lock` untuk mencegah dua proses lokal sekaligus. Jangan
+menjalankan service, Docker, dan proses manual dengan sesi WA yang sama.
+
+## Docker (opsional)
+
+Image menggunakan Node 24, FFmpeg dan yt-dlp dalam virtualenv. File rahasia,
+sesi, dependency lokal, serta `.tools` tidak masuk image.
+
+```bash
+cp .env.example .env
 sudo docker build -t bot-wa-asy .
-sudo docker run -d --name bot-wa-running --env-file .env --restart always bot-wa-asy
-sudo docker logs -f bot-wa-running   # scan QR yang muncul di sini
+sudo docker volume create bot-wa-auth
+sudo docker run -d --name bot-wa-running --env-file .env --restart unless-stopped \
+  --mount type=volume,source=bot-wa-auth,target=/app/auth_session bot-wa-asy
+sudo docker logs -f bot-wa-running
 ```
 
-Scan QR pakai WhatsApp: **Perangkat Tertaut → Tautkan Perangkat**. Tunggu
-`✅ Bot WhatsApp terkoneksi!`, lalu `Ctrl+C` (container tetap jalan).
+Untuk update: `git pull`, lalu `./update.sh`. Image dibangun sebelum bot lama
+dihentikan, dan login disimpan pada volume `bot-wa-auth`.
 
-**Update ke versi terbaru** — buat `update.sh` sekali:
-```bash
-#!/bin/bash
-set -e
-sudo docker stop bot-wa-running 2>/dev/null || true
-sudo docker rm bot-wa-running 2>/dev/null || true
-sudo docker build -t bot-wa-asy .
-sudo docker run -d --name bot-wa-running --env-file .env --restart always bot-wa-asy
-echo "Update selesai!"
-```
-```bash
-chmod +x update.sh
-# tiap ada update:
-git pull && ./update.sh
-```
+Jika container lama belum memakai volume, script menolak menghapusnya.
+Hentikan container, backup sesinya dengan `docker cp`, lalu migrasikan isi
+backup ke volume dan pastikan dimiliki UID/GID 1000 sebelum memakai image
+baru. Jangan hapus container lama sampai backup terverifikasi. Sesuaikan
+`AUTH_DIR` ke `/app/auth_session` jika `.env` memiliki override lama.
 
-**Maintenance:**
-```bash
-sudo docker logs -f bot-wa-running     # log real-time
-sudo docker ps                          # status
-sudo docker stats                       # RAM/CPU
-sudo docker system prune -a --volumes   # bersihin disk penuh
-```
+`docker-clean.sh` hanya menawarkan pembersihan dangling image secara interaktif;
+tidak menghapus volume/sesi.
 
-> ⚠️ **Jangan jalanin Docker dan `node index.js` manual bersamaan** — dua
-> instance connect ke WhatsApp session yang sama bikin bug aneh (reminder
-> nggak konsisten, pesan dobel, dll). Matiin salah satu dulu kalau mau tes manual.
+## Windows
 
----
-
-## 3. Menjalankan Tanpa Docker
-
-Cocok untuk development lokal.
-
-### Windows (native)
-
-Jalankan perintah berikut dari PowerShell. Node.js dan Git hanya perlu
-di-install kalau belum ada:
-
-```powershell
-winget install --source winget --exact --id OpenJS.NodeJS.LTS
-winget install --source winget --exact --id Git.Git
-winget install --source winget --exact --id Gyan.FFmpeg
-winget install --source winget --exact --id yt-dlp.yt-dlp
-```
-
-Tutup dan buka ulang terminal setelah instalasi supaya `PATH` terbaru terbaca,
-lalu verifikasi:
-
-```powershell
-node --version
-npm.cmd --version
-ffmpeg -version
-ffprobe -version
-yt-dlp --version
-```
-
-Node.js wajib versi 20+. Python, Cairo, dan Visual Studio Build Tools biasanya
-tidak diperlukan karena `canvas` dan `sharp` menyediakan binary Windows.
-
-Install dependency project dari root repository:
+Node 24, FFmpeg, dan Git diperlukan. Lalu dari root repo:
 
 ```powershell
 npm.cmd ci --legacy-peer-deps
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\install-fonts.ps1
+npm.cmd run setup:downloader
+Copy-Item .env.example .env
+npm.cmd run check
+npm.cmd start
 ```
 
-Project menyertakan `.npmrc` untuk mengizinkan dependency Git yang dikunci oleh
-Baileys. Ini diperlukan oleh npm 12; tanpa itu clean install gagal dengan
-`EALLOWGIT`. `npm.cmd` dipakai karena sebagian instalasi Windows memblokir
-`npm.ps1` lewat PowerShell Execution Policy.
-
-Pastikan `.env` dan `service-account.json` sudah ada, lalu lakukan login pertama:
-
-```powershell
-node index.js
-```
-
-Scan QR melalui WhatsApp: **Perangkat Tertaut -> Tautkan Perangkat**. Folder
-`auth_session/` dibuat otomatis setelah login, jadi tidak perlu dibuat atau
-dipindahkan sebelumnya. Tekan `Ctrl+C` untuk mematikan proses manual.
-
-#### Auto-start Windows
-
-Bot dapat dijalankan otomatis setiap kali user Windows login. Install NSSM
-tidak diperlukan karena repository sudah menyediakan integrasi Task Scheduler:
+Integrasi Task Scheduler yang ada di folder `windows/` tetap tersedia.
+Pastikan FFmpeg ada di PATH task. Untuk auto-start, setelah scan QR dan
+mematikan proses manual:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 install
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 start
 ```
 
-Lakukan ini setelah login QR manual berhasil. Kontrol bot selanjutnya:
+## Troubleshooting
 
-```powershell
-# Cek status
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 status
+- **`npm ci` / EALLOWGIT:** Baileys 6 memakai dependency Git yang dipin dalam lockfile. `.npmrc` repo mengizinkan sumber Git tersebut. npm 12 juga memakai `allowScripts` eksplisit untuk paket native; jangan menghapus konfigurasi itu. Gunakan lockfile untuk clean install.
+- **Gagal download:** jalankan `npm run setup:downloader`, periksa `npm run check`, dan coba link publik biasa. Video private/berbayar, pembatasan jaringan, login/cookie, atau perubahan provider tetap bisa membuat download gagal. Tidak ada fallback ke layanan TikTok pihak ketiga.
+- **Sesi logout/diganti perangkat lain:** service berhenti dengan kode 78 agar tidak loop login. Hentikan semua instance, backup/rename `auth_session`, lalu `npm start` dan scan ulang jika memang logout. Jangan hapus sesi untuk setiap error jaringan.
+- **`/kirim` menolak owner:** nomor WhatsApp bisa disampaikan sebagai LID. Bot memakai alternate JID dari pesan bila tersedia; bila tidak tersedia, isi JID `@lid` owner di `OWNER_NUMBERS`.
+- **Bratvid:** animasi dibuat dengan Sharp, tidak memerlukan FFmpeg. FFmpeg diperlukan untuk download dan konversi MP3/MP4.
 
-# Matikan
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 stop
+## Struktur dan pemeriksaan
 
-# Nyalakan lagi
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 start
+`index.js` menangani WhatsApp dan command; `lib/` menangani konfigurasi,
+akses owner, proses eksternal tanpa shell, download, teks meme, dan metadata
+stiker; `gemini.js` memakai SDK `@google/genai`; `brat-advanced.js` dan
+`fakechat.js` menghasilkan gambar; `scripts/check.js` memeriksa instalasi.
 
-# Hapus auto-start
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1 uninstall
-```
+`npm test` mencakup akses grup/pribadi tanpa pendaftaran, admin, batch pesan,
+replay, input URL, batas request, cleanup download, lock proses, dan hasil
+media native termasuk animasi. Tes memakai mock untuk layanan WA/Gemini dan
+unduhan jaringan; koneksi nyata harus diverifikasi saat login.
 
-Log proses otomatis disimpan di `logs/bot-YYYY-MM-DD.log`. Jangan menjalankan
-proses manual dan Task Scheduler bersamaan karena keduanya memakai sesi
-WhatsApp yang sama.
-
-### Linux (Arch)
-```bash
-sudo pacman -Syu
-sudo pacman -S nodejs npm yt-dlp ffmpeg fontconfig noto-fonts-emoji
-npm install --legacy-peer-deps
-node index.js
-```
-
-### Linux (Debian/Ubuntu)
-```bash
-sudo apt install nodejs npm ffmpeg fontconfig fonts-noto-color-emoji
-pip3 install --break-system-packages -U yt-dlp
-npm install --legacy-peer-deps
-node index.js
-```
-
-Node.js **wajib versi 20+** (dicek: `node --version`).
-
----
-
-## 4. Semua Command
-
-Ketik `/help` di chat bot buat lihat daftar terkini (tampilan beda dikit
-untuk grup vs pribadi, owner vs user biasa). Ringkasannya:
-
-| Kategori | Command |
-|---|---|
-| **Akun** *(pribadi)* | `/daftarbot [nama]`, `/deleteuser` |
-| **Keuangan** | `/masuk`, `/keluar`, `/rekap`, `/riwayat`, `/unduhrekap`, foto+caption `/struk` |
-| **To-Do** | `/todo`, `/listtodo`, `/done` |
-| **Reminder & Alarm** | `/reminder on/off` (per-user), `/alarm [jam] [pesan]`, `/stopalarm`, `/listalarm`, `/hapusalarm` |
-| **Media** | foto+caption `/stiker [teks]`, `/download [link] [format] \| [caption]`, foto+caption `/ai` (analisis gambar) |
-| **Brat** | `/brat [teks]`, `/bratvid [teks]` (animasi) |
-| **Fake Chat** | `/fakechat [teks pesan]` — generate screenshot chat WA palsu |
-| **Utilitas** | `/kirim [nomor] [pesan]`, reply stiker + `/kirim [nomor]` (forward) |
-| **AI Assistant** | `/ai [pertanyaan/perintah]` — chat bebas atau jalanin aksi (catat transaksi, todo, dll) via bahasa natural |
-| **Admin** *(`OWNER_NUMBERS`)* | `/listuser`, `/adminhapususer [nama]`, `/testreminder`, `/ping [text]` (grup), `/alert [text]`, `/botonline`/`/botoffline` (grup), `/allreminder [on/off]` (nyala/matiin reminder semua user sekaligus) |
-
-**Group activation:** bot silent di grup sampai owner jalanin `/botonline`
-di grup itu. Command finansial/personal tetap cuma jalan di chat pribadi;
-di grup cuma `/ai`, `/botonline`/`/botoffline`, dan broadcast admin.
-
----
-
-## 5. Struktur File
-
-```
-bot-whatsapp-asy/
-├── index.js              # Entry point: koneksi WA, semua command, scheduler
-├── sheets.js              # Baca/tulis Google Sheets
-├── gemini.js               # Integrasi AI: chat, function calling, baca struk
-├── brat-advanced.js         # Generator stiker Brat
-├── fakechat.js               # Generator fake chat screenshot
-├── package.json / package-lock.json
-├── Dockerfile
-├── update.sh                  # (opsional, dibuat sendiri) skrip redeploy
-├── .npmrc                       # Izin dependency Git Baileys untuk npm 12+
-├── .env                          # JANGAN commit
-├── .env.example
-├── service-account.json           # JANGAN commit (di-gitignore)
-├── auth_session/                    # Sesi login WA (auto-generated, jangan hapus sembarangan)
-├── temp/                              # File temporary /download (auto terhapus)
-├── windows/
-│   ├── install-fonts.ps1                # Daftarkan font bundled ke Windows
-│   ├── manage-bot.ps1                  # Install/start/stop auto-start Windows
-│   └── run-bot.ps1                     # Runner Task Scheduler + logging
-├── fonts/
-│   ├── arialnarrow.ttf                 # Font stiker Brat
-│   └── sfprodisplayregular.otf          # Font /fakechat
-└── assets/
-    ├── bg.jpg                          # Background /fakechat
-    └── emoji/*.png                      # Emoji bar reaksi /fakechat
-```
-
----
-
-## 6. Troubleshooting
-
-**QR tidak muncul / loop "Koneksi terputus" terus** — hapus session lalu login ulang:
-```bash
-# Docker:
-sudo docker exec -it bot-wa-running rm -rf /app/auth_session && sudo docker restart bot-wa-running
-# Linux tanpa Docker:
-rm -rf auth_session && node index.js
-```
-
-```powershell
-# Windows tanpa Docker:
-Remove-Item -LiteralPath .\auth_session -Recurse -Force
-node index.js
-```
-
-**`Stream Errored (ack)` sering muncul** — bug internal library Baileys
-(auto-reconnect, bot tetap jalan). Pastikan cuma 1 instance bot yang jalan
-(lihat peringatan di Bagian 2), dan `npm ci --legacy-peer-deps` buat pastiin versi
-Baileys terbaru.
-
-**`EBADENGINE`** — Node.js kurang dari v20, update dulu.
-
-**`ERESOLVE` / konflik peer-dependency saat `npm install`** — selalu pakai
-`--legacy-peer-deps`:
-```bash
-rm -rf node_modules
-npm ci --legacy-peer-deps
-```
-
-Windows PowerShell (jangan hapus `package-lock.json` untuk install normal):
-```powershell
-Remove-Item -LiteralPath .\node_modules -Recurse -Force
-npm.cmd ci --legacy-peer-deps
-```
-
-**PowerShell menolak `npm.ps1` karena execution policy** — gunakan `npm.cmd`
-seperti pada contoh Windows. Tidak perlu menurunkan kebijakan keamanan sistem.
-
-**`Cannot find module 'canvas'` atau `Cannot find module
-'../build/Release/canvas.node'` di Windows:**
-```powershell
-npm.cmd rebuild canvas --foreground-scripts
-node -e "require('canvas'); console.log('canvas OK')"
-```
-
-Kalau clean install dengan npm 12 menampilkan `EALLOWGIT`, pastikan file
-`.npmrc` dari repository tidak hilang, lalu ulangi `npm.cmd ci
---legacy-peer-deps`.
-
-**Docker: `failed to connect to the docker API`** — daemon belum jalan:
-```bash
-sudo systemctl enable --now docker
-```
-
-**`/download` gagal khusus buat TikTok** (`Unable to extract universal
-data for rehydration`) — TikTok lagi ngetatin anti-bot, ini isu upstream di
-yt-dlp maupun provider fallback (`@tobyg74/tiktok-api-dl` — otomatis coba 3
-provider berurutan). Kalau semua provider gagal, biasanya sementara —
-`yt-dlp -U` buat update, atau tunggu beberapa hari sampai provider-nya
-nyesuain diri. YouTube & platform lain harusnya nggak kena isu ini.
-
-**`/brat`, `/bratvid`, `/fakechat` error atau emoji nggak muncul berwarna**
-1. Native deps buat `canvas` belum lengkap (Docker sudah handle otomatis):
-   ```bash
-   # Arch: sudo pacman -S cairo pango libjpeg-turbo giflib librsvg fontconfig
-   # Debian/Ubuntu: sudo apt install libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fontconfig
-   ```
-2. Error `Cannot find module '../build/Release/canvas.node'` → `npm rebuild canvas --legacy-peer-deps`
-3. `/fakechat` emoji-nya pakai PNG bundled di `assets/emoji/` (bukan font sistem), jadi harusnya selalu muncul berwarna tanpa install tambahan — kalau error, cek folder `assets/emoji/` dan `fonts/sfprodisplayregular.otf` ada di project.
-4. `/bratvid` nggak bergerak -> cek dukungan WebP dengan `ffmpeg -codecs`. Di
-   Windows PowerShell bisa difilter dengan `ffmpeg -codecs | Select-String webp`.
-
-**`Kamu belum terdaftar` padahal sudah `/daftarbot`** — JID `@lid` kadang
-berubah antar sesi (isu belum ke-root-cause sepenuhnya). Coba
-`/deleteuser` lalu `/daftarbot` ulang.
-
-**Grup tidak merespons meski sudah `/botonline`** — cek sheet
-`GroupSettings` kolom `IsActive` = `TRUE`, pastikan `OWNER_NUMBERS` di
-`.env` sesuai akun yang jalanin `/botonline`, dan cek log error:
-```bash
-sudo docker logs bot-wa-running | grep -A 5 ERROR
-```
+Baileys dipin pada patch legacy 6.7.24. v7 upstream masih RC dan tidak
+ditingkatkan otomatis.

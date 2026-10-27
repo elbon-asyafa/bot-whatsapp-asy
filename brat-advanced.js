@@ -1,6 +1,6 @@
 const { createCanvas, registerFont } = require('canvas');
-const ffmpeg = require('fluent-ffmpeg');
-const fs = require('fs');
+const sharp = require('sharp');
+const { text: validateText } = require('./lib/validation');
 const path = require('path');
 
 // Register font Arial Narrow dari folder fonts
@@ -16,21 +16,6 @@ const CANVAS_SIZE = 512;
 const MARGIN = 40;
 const SAFE_WIDTH = CANVAS_SIZE - MARGIN * 2;
 const SAFE_HEIGHT = CANVAS_SIZE - MARGIN * 2;
-
-// Tambahkan noise/grain texture yang lebih burik
-function addNoiseTexture(ctx) {
-  const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-  const data = imageData.data;
-  
-  for (let i = 0; i < data.length; i += 4) {
-    const noise = Math.random() * 140 - 70; // noise -70 sampai +70
-    data[i] = Math.min(255, Math.max(0, data[i] + noise));     // R
-    data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise)); // G
-    data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise)); // B
-  }
-  
-  ctx.putImageData(imageData, 0, 0);
-}
 
 // Word wrap manual dengan measureText
 function wrapText(ctx, text, maxWidth) {
@@ -110,88 +95,20 @@ function renderTextToCanvas(text) {
   return canvas;
 }
 
-// Generate static brat sticker (WebP)
-async function generateStaticBrat(text) {
-  const canvas = renderTextToCanvas(text);
-  const buffer = canvas.toBuffer('image/png');
-
-  // Convert PNG ke WebP via sharp
-  try {
-    const sharp = require('sharp');
-    return await sharp(buffer)
-      .webp({ quality: 90 })
-      .resize(512, 512, { fit: 'fill' })
-      .toBuffer();
-  } catch (e) {
-    return buffer;
-  }
+// Keep each request in memory: concurrent animations never share temporary files.
+async function generateStaticBrat(value) {
+  const canvas = renderTextToCanvas(validateText(value, 'Teks Brat', 300));
+  return sharp(canvas.toBuffer('image/png')).webp({ quality: 85 }).toBuffer();
 }
 
-// Generate animated brat sticker (WebP animasi kata per kata)
-async function generateAnimatedBrat(text) {
-  const words = text.toLowerCase().split(/\s+/);
-  const tempDir = path.join(__dirname, 'temp');
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-
-  const frameFiles = [];
-
-  // Render frame per frame (kata bertambah)
-  for (let i = 0; i < words.length; i++) {
-    const partialText = words.slice(0, i + 1).join(' ');
-    const canvas = renderTextToCanvas(partialText);
-    const framePath = path.join(tempDir, `brat_frame_${String(i).padStart(3, '0')}.png`);
-    const buffer = canvas.toBuffer('image/png');
-    fs.writeFileSync(framePath, buffer);
-    frameFiles.push(framePath);
-  }
-
-  // Buat file concat list untuk ffmpeg
-  const concatListPath = path.join(tempDir, `concat_${Date.now()}.txt`);
-  const concatContent = frameFiles
-    .map((f) => `file '${f.replace(/'/g, "'\\''")}'\nduration 0.75`)
-    .join('\n') + '\n';
-  fs.writeFileSync(concatListPath, concatContent);
-  const lastFrame = frameFiles[frameFiles.length - 1].replace(/'/g, "'\\''");
-  // Repeat last frame tanpa durasi ekstra: ini cuma trik ffmpeg agar durasi frame terakhir ikut terbaca.
-  fs.appendFileSync(concatListPath, `file '${lastFrame}'\n`);
-
-  // Gabungkan frame jadi WebP animasi dengan ffmpeg (concat demuxer)
-  const outputPath = path.join(tempDir, `brat_anim_${Date.now()}.webp`);
-
-  return new Promise((resolve, reject) => {
-    const cmd = ffmpeg()
-      .input(concatListPath)
-      .inputOptions(['-f concat', '-safe 0'])
-      .outputOptions([
-        '-vcodec libwebp',
-        '-lossless 0',
-        '-q:v 80',
-        '-loop 0',
-        '-vf scale=512:512',
-        '-preset default',
-        '-an',
-      ])
-      .output(outputPath)
-      .on('end', () => {
-        const buffer = fs.readFileSync(outputPath);
-        
-        // Cleanup
-        frameFiles.forEach((f) => { try { fs.unlinkSync(f); } catch (_) {} });
-        try { fs.unlinkSync(concatListPath); } catch (_) {}
-        try { fs.unlinkSync(outputPath); } catch (_) {}
-
-        resolve(buffer);
-      })
-      .on('error', (err) => {
-        frameFiles.forEach((f) => { try { fs.unlinkSync(f); } catch (_) {} });
-        try { fs.unlinkSync(concatListPath); } catch (_) {}
-        reject(err);
-      })
-      .run();
-  });
+async function generateAnimatedBrat(value) {
+  const words = validateText(value, 'Teks Brat', 300).toLowerCase().split(/\s+/);
+  if (words.length > 30) throw new Error('Teks Brat maksimal 30 kata.');
+  const frames = words.map((_, index) =>
+    renderTextToCanvas(words.slice(0, index + 1).join(' ')).toBuffer('image/png'));
+  const delay = Math.min(750, Math.floor(9000 / frames.length / 10) * 10);
+  return sharp(frames, { join: { animated: true } })
+    .webp({ quality: 80, loop: 0, delay: frames.map(() => delay) }).toBuffer();
 }
 
-module.exports = {
-  generateStaticBrat,
-  generateAnimatedBrat,
-};
+module.exports = { generateStaticBrat, generateAnimatedBrat };
