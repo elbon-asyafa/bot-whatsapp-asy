@@ -18,7 +18,8 @@ todo, alarm, reminder, atau scan struk.
 | `/fakechat [pesan] \| [21.30]` | Gambar fakechat dengan jam opsional |
 | `/ai [pertanyaan]` | Jawaban Gemini, memerlukan API key |
 | Foto + caption `/ai [pertanyaan]` atau reply foto | Analisis gambar dengan Gemini |
-| `/ping [pesan]` | Tag semua anggota; khusus admin grup atau owner bot |
+| `/ping [pesan]` | Tag semua anggota grup; khusus owner bot |
+| `/log [jumlah]` | Lihat aktivitas command terbaru (1–30 entri); khusus owner bot |
 | `/kirim [628...] [pesan]` atau reply stiker + `/kirim [628...]` | Forward; khusus owner bot |
 
 Semua fitur umum tersedia untuk siapa saja di grup dan chat pribadi. Bot
@@ -79,7 +80,7 @@ cp .env.example .env
 
 - `GEMINI_API_KEY`: isi hanya jika ingin `/ai`; ambil dari [Google AI Studio](https://aistudio.google.com/apikey).
 - `GEMINI_MODEL`: default `gemini-3.1-flash-lite`.
-- `OWNER_NUMBERS`: nomor owner, contoh `6281234567890`, pisah koma jika lebih dari satu. Bisa juga JID `12345@lid`. Hanya diperlukan untuk `/kirim` atau hak owner pada `/ping`.
+- `OWNER_NUMBERS`: nomor owner, contoh `6281234567890`, pisah koma jika lebih dari satu. Bisa juga JID `12345@lid`. Menentukan akses `/log`, `/ping`, dan `/kirim`. Admin grup tidak otomatis menjadi owner. Jika kosong, ketiganya ditolak untuk semua pengirim.
 - `YT_DLP_PATH` / `FFMPEG_PATH`: opsional, path executable tanpa argumen. Jika `YT_DLP_PATH` kosong, `.tools/yt-dlp` diprioritaskan sebelum PATH sistem.
 - `AUTH_DIR`: default `auth_session`, relatif terhadap folder repo.
 
@@ -87,6 +88,17 @@ Tanpa `.env`, fitur non-AI sudah bisa dipakai. Jangan kirim key atau isi sesi
 WA ke chat dan jangan commit file tersebut. `.env` lama dengan pengaturan
 Sheets tidak lagi dibaca untuk fitur lama; ganti dengan template baru jika
 menginginkan konfigurasi yang bersih.
+
+Untuk menetapkan owner, isi nomor akun WhatsApp pemilik di `.env`, lalu restart bot:
+
+```dotenv
+OWNER_NUMBERS=6281234567890
+```
+
+Ganti contoh tersebut dengan nomor owner sebenarnya (format internasional).
+Nomor ini dibandingkan dengan identitas pengirim dari WhatsApp, bukan nama
+profil atau status admin grup. Kirim command dari akun owner tersebut ke bot;
+pesan dari akun bot sendiri tetap diabaikan untuk menghindari loop.
 
 Periksa instalasi:
 
@@ -187,7 +199,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1
 - **`npm ci` / EALLOWGIT:** Baileys 6 memakai dependency Git yang dipin dalam lockfile. `.npmrc` repo mengizinkan sumber Git tersebut. npm 12 juga memakai `allowScripts` eksplisit untuk paket native; jangan menghapus konfigurasi itu. Gunakan lockfile untuk clean install.
 - **Gagal download:** jalankan `npm run setup:downloader`, periksa `npm run check`, dan coba link publik biasa. Video private/berbayar, pembatasan jaringan, login/cookie, atau perubahan provider tetap bisa membuat download gagal. Tidak ada fallback ke layanan TikTok pihak ketiga.
 - **Sesi logout/diganti perangkat lain:** service berhenti dengan kode 78 agar tidak loop login. Hentikan semua instance, backup/rename `auth_session`, lalu `npm start` dan scan ulang jika memang logout. Jangan hapus sesi untuk setiap error jaringan.
-- **`/kirim` menolak owner:** nomor WhatsApp bisa disampaikan sebagai LID. Bot memakai alternate JID dari pesan bila tersedia; bila tidak tersedia, isi JID `@lid` owner di `OWNER_NUMBERS`.
+- **Command owner ditolak:** nomor WhatsApp bisa disampaikan sebagai LID. Bot mencocokkan nomor dari `participantPn` untuk grup atau `senderPn` untuk chat pribadi, serta alternate JID jika tersedia. Pastikan `OWNER_NUMBERS` terisi dan restart setelah mengubahnya. Jika WhatsApp tidak memberikan nomor pasangan LID, isi JID `@lid` owner yang sudah diverifikasi di `OWNER_NUMBERS`.
 - **Bratvid:** animasi dibuat dengan Sharp, tidak memerlukan FFmpeg. FFmpeg diperlukan untuk download dan konversi MP3/MP4.
 
 ## Struktur dan pemeriksaan
@@ -210,15 +222,41 @@ ditingkatkan otomatis.
 
 Default terminal memakai format `17:45:00 WARN WA | pesan`, tanpa JSON panjang,
 PID, hostname, atau buffer pesan. Status koneksi aplikasi tetap terlihat.
-Pesan masuk (termasuk yang bukan command) dicatat dengan nama pengirim, nomor
-telepon jika tersedia, ID WhatsApp, jenis chat grup/pribadi, ID pesan, dan isi
-teks/caption lengkap. Jika WhatsApp hanya memberikan LID tanpa nomor alternatif,
-nomor ditandai belum tersedia; LID tidak dianggap sebagai nomor telepon.
-Setiap balasan bot mencatat tujuan, isi teks atau jenis media, status berhasil/gagal
-dikirim, dan waktu sejak pesan diterima. Status terkirim berarti pengiriman oleh
-socket berhasil, bukan tanda pesan sudah dibaca. Buffer media tidak dicetak.
-Pesan lama, pesan bot sendiri, dan pengiriman ulang dengan ID yang sama dilewati.
-Log percakapan memuat nomor dan isi chat; batasi akses serta berhati-hati saat membagikannya.
+Hanya command (pesan berawalan `/`) dan respons bot yang dicatat. Obrolan biasa
+di grup maupun chat pribadi dilewati. Tampilan percakapan dibuat ringkas:
+
+```text
+17:45:00 MASUK | Asy (+628123456789) | pribadi
+  /ai halo
+17:45:01 BALAS | Bot ASY (+628987654321) | pribadi | ke +628123456789 | 1000 ms
+  Halo! Ada yang bisa dibantu?
+```
+
+Teks pada terminal diringkas maksimal 240 karakter per entri; media ditampilkan
+sebagai jenisnya. Kegagalan diberi label `GAGAL`. Nomor yang tidak diberikan
+WhatsApp ditandai belum tersedia. ID pesan dan detail MIME disembunyikan pada
+tampilan terminal, tetapi tetap tersedia jika memakai format JSON.
+
+Gunakan `/log` untuk 10 entri aktivitas terbaru, atau `/log 20` untuk memilih
+jumlahnya (1–30 entri, setiap pesan masuk/balasan dihitung satu entri).
+Owner yang terdaftar di `OWNER_NUMBERS` bisa melihat log semua chat melalui
+chat pribadi. Di grup, hanya owner yang bisa melihat log grup itu.
+Admin grup dan anggota yang tidak terdaftar sebagai owner tidak bisa mengakses
+`/log`, `/ping`, atau `/kirim`. Identitas LID dengan nomor pasangan dari
+WhatsApp juga digunakan untuk mengenali owner. `/help` selalu menampilkan
+ketiga fitur dengan label khusus owner; teks `akunmu dikenali` muncul jika
+pengirim berhasil dikenali sebagai owner.
+Pengirim pada log `MASUK` adalah peminta command, sedangkan pengirim pada log
+`BALAS` adalah akun bot yang sedang terhubung, dengan nomor dan nama dari socket
+WhatsApp. Jika identitas bot belum tersedia, tidak diganti dengan identitas peminta.
+Riwayat WhatsApp berisi maksimal 200 entri aktivitas command di memori, sejak
+bot dinyalakan, dan kosong kembali setelah restart. Log koneksi/internal tetap
+dilihat di terminal. Balasan berisi ekspor log dicatat sebagai `[respons /log]`
+agar riwayat tidak menggandakan isi ekspor sebelumnya.
+
+Status balasan berhasil berarti pengiriman oleh socket berhasil, bukan tanda
+pesan sudah dibaca. Pesan lama, pesan bot sendiri, dan pengiriman ulang dengan
+ID yang sama dilewati. Buffer media tidak dicetak.
 Timeout 408 khusus `init queries` ditampilkan sebagai warning; pengulangannya
 diringkas selama 5 menit. Ini bukan bukti bot terputus: periksa `/help` jika
 command tidak merespons. Request awal Baileys tetap berjalan, tidak dinonaktifkan.

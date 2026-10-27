@@ -34,7 +34,7 @@ async function check(label, fn) {
   });
   await check('SDK Gemini', () => { require('@google/genai'); });
   console.log(aiEnabled() ? '[INFO] API key AI terisi; koneksi API belum diuji.' : '[INFO] AI belum diaktifkan. Isi GEMINI_API_KEY jika ingin /ai.');
-  console.log(`[INFO] Owner: ${config.ownerNumbers.length ? 'terkonfigurasi' : 'belum diisi (opsional, untuk /kirim)'}. Tidak memerlukan Google Sheets.`);
+  console.log(`[INFO] Owner: ${config.ownerNumbers.length ? 'terkonfigurasi' : 'belum diisi (/log, /ping, dan /kirim tidak bisa dipakai)'}. Tidak memerlukan Google Sheets.`);
   console.log('[INFO] Login WA dan download nyata perlu dites setelah instalasi sistem selesai.');
   process.exitCode = failures ? 1 : 0;
 })();

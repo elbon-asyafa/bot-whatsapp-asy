@@ -61,15 +61,21 @@ test('pretty destination produces readable output instead of JSON', () => {
   assert.match(lines[0], /^\d{2}:\d{2}:\d{2} INFO BOT \| WhatsApp tersambung\.\n$/);
 });
 
-test('pretty conversation output prints sender, phone, text, destination and status safely', () => {
+test('pretty conversation output is compact, bounded and safe for terminal display', () => {
   const result = formatRecord({ time: Date.UTC(2026, 9, 27, 10), level: 30, msg: 'Respons bot terkirim',
+    event: 'message.sent',
     sender: { name: 'Asy\u001b[31m', phone: '+628111111111', jid: '999@lid' }, chatType: 'grup',
     chat: '12000@g.us', messageId: 'incoming', target: '12000@g.us', command: '/ai',
     content: { type: 'teks', text: 'halo\nbaris kedua\u001b' }, status: 'terkirim', durationMs: 42 });
-  assert.match(result, /Nomor: \+628111111111/);
-  assert.match(result, /ID pesan: incoming/);
-  assert.match(result, /Tujuan\s+: 12000@g.us/);
-  assert(result.includes('"halo\\nbaris kedua\\u001b"'));
+  assert.match(result, /^17:00:00 BALAS \| Asy.*\(\+628111111111\)/);
+  assert(!result.includes('incoming'));
+  assert(!result.includes('999@lid'));
+  assert(result.includes('halo baris kedua'));
   assert(!result.includes('\u001b'));
-  assert.match(result, /terkirim \| 42 ms/);
+  assert.match(result, /grup 12000@g.us \| 42 ms/);
+  assert.equal(result.trim().split('\n').length, 2);
+  const long = formatRecord({ time: Date.now(), event: 'message.received', sender: { name: 'Asy' },
+    chatType: 'pribadi', content: { type: 'teks', text: 'x'.repeat(5000) } });
+  assert(long.length < 400);
+  assert(long.includes('…'));
 });
