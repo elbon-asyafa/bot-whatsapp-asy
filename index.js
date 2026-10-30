@@ -21,7 +21,7 @@ function unwrap(content) {
 
 function help(owner) {
   return `*Bot WhatsApp ASY*\nLangsung pakai di grup atau chat pribadi. Tidak perlu daftar.\n\n` +
-    `/download [link YouTube/TikTok] [mp4/mp3] | [caption]\n` +
+    `/download [link YouTube/TikTok/Instagram] [mp4/mp3] | [caption]\n` +
     `/stiker [teks atas | teks bawah] — foto dengan caption atau reply foto\n` +
     `/brat [teks] — stiker teks\n/bratvid [teks] — stiker teks animasi\n` +
     `/fakechat [pesan] | [jam] — gambar fakechat\n` +

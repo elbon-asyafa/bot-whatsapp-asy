@@ -10,7 +10,7 @@ todo, alarm, reminder, atau scan struk.
 | Command | Fungsi |
 |---|---|
 | `/help` | Tampilkan bantuan |
-| `/download [link] [mp4/mp3] \| [caption]` | Download YouTube/TikTok, default MP4 |
+| `/download [link] [mp4/mp3] \| [caption]` | Download YouTube/TikTok/Instagram, default MP4 |
 | Foto + caption `/stiker [atas \| bawah]` | Stiker foto, dengan teks opsional |
 | Reply foto + `/stiker` atau `/sticker` | Stiker dari foto yang dibalas |
 | `/brat [teks]` | Stiker teks statis |
