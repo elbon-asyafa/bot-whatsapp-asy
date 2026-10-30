@@ -1,14 +1,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { config, normalizeJid } = require('./lib/config');
-const { rememberIdentity, isOwner, senderIdentity } = require('./lib/access');
-const { text, serial } = require('./lib/validation');
-const { download, validateUrl } = require('./lib/download');
-const { phoneNumber, describeMessage, createChatHistory } = require('./lib/chat-log');
+const { config, normalizeJid } = require('./lib.config');
+const { rememberIdentity, isOwner, senderIdentity } = require('./lib.access');
+const { text, serial } = require('./lib.validation');
+const { download, validateUrl } = require('./lib.download');
+const { phoneNumber, describeMessage, createChatHistory } = require('./lib.chat-log');
 
 const MAX_IMAGE = 10 * 1024 * 1024;
-const COMMANDS = new Set(['/help', '/ai', '/download', '/stiker', '/sticker', '/brat', '/bratvid', '/fakechat', '/kirim', '/ping', '/log']);
-const REMOVED = new Set(['/daftarbot', '/deleteuser', '/masuk', '/keluar', '/rekap', '/riwayat', '/unduhrekap', '/struk', '/todo', '/listtodo', '/done', '/reminder', '/alarm', '/stopalarm', '/listalarm', '/hapusalarm', '/listuser', '/adminhapususer', '/testreminder', '/allreminder', '/botonline', '/botoffline', '/alert']);
+const COMMANDS = new Set(['.help', '.ai', '.download', '.stiker', '.sticker', '.brat', '.bratvid', '.fakechat', '.kirim', '.ping', '.log']);
+const REMOVED = new Set(['.daftarbot', '.deleteuser', '.masuk', '.keluar', '.rekap', '.riwayat', '.unduhrekap', '.struk', '.todo', '.listtodo', '.done', '.reminder', '.alarm', '.stopalarm', '.listalarm', '.hapusalarm', '.listuser', '.adminhapususer', '.testreminder', '.allreminder', '.botonline', '.botoffline', '.alert']);
 
 function unwrap(content) {
   for (let i = 0; i < 5; i++) {
@@ -21,34 +21,35 @@ function unwrap(content) {
 
 function help(owner) {
   return `*Bot WhatsApp ASY*\nLangsung pakai di grup atau chat pribadi. Tidak perlu daftar.\n\n` +
-    `/download [link YouTube/TikTok/Instagram] [mp4/mp3] | [caption]\n` +
-    `/stiker [teks atas | teks bawah] — foto dengan caption atau reply foto\n` +
-    `/brat [teks] — stiker teks\n/bratvid [teks] — stiker teks animasi\n` +
-    `/fakechat [pesan] | [jam] — gambar fakechat\n` +
-    `/ai [pertanyaan] — tanya AI; bisa foto atau reply foto\n` +
-    `/help — daftar command` +
-    `\n\n*Khusus owner${owner ? ' — akunmu dikenali' : ''}*\n/ping [pesan] — tag anggota grup\n/log [jumlah] — log terbaru (maksimal 30)\n/kirim [nomor] [pesan] — atau reply stiker untuk forward` +
+    `.download [link YouTube.TikTok.Instagram] [mp4.mp3] | [caption]\n` +
+    `.stiker [teks atas | teks bawah] — foto dengan caption atau reply foto\n` +
+    `.brat [teks] — stiker teks\n.bratvid [teks] — stiker teks animasi\n` +
+    `.fakechat [pesan] | [jam] — gambar fakechat\n` +
+    `.ai [pertanyaan] — tanya AI; bisa foto atau reply foto\n` +
+    `.help — daftar command` +
+    `\n\n.kirim [nomor] [pesan] — kirim lewat bot; opsional: | dari: Nama\n` +
+    `\n*Khusus owner${owner ? ' — akunmu dikenali' : ''}*\n.ping [pesan] — tag anggota grup\n.log [jumlah] — log terbaru (maksimal 30)\n.alert [pesan] — kirim pengumuman ke semua grup bot` +
     `\n\nDownload: maksimal 60 MB dan 15 menit durasi. AI memerlukan API key dari pemilik bot.`;
 }
 
 function createHandler(deps = {}) {
-  const appLog = deps.logger || require('./lib/logger').createLogger();
+  const appLog = deps.logger || require('./lib.logger').createLogger();
   const media = deps.downloadMediaMessage;
   const downloadFile = deps.download || download;
-  const ai = deps.ai || ((...args) => require('./gemini').tanyaAI(...args));
-  const sticker = deps.sticker || (async buffer => new (require('./lib/sticker').Sticker)(buffer).toBuffer());
+  const ai = deps.ai || ((../args) => require('./gemini').tanyaAI(../args));
+  const sticker = deps.sticker || (async buffer => new (require('./lib.sticker').Sticker)(buffer).toBuffer());
   const brat = deps.brat || ((value, animated) => {
     const generators = require('./brat-advanced');
     return animated ? generators.generateAnimatedBrat(value) : generators.generateStaticBrat(value);
   });
   const fakechat = deps.fakechat || (value => require('./fakechat').generateFakeChat(value));
-  const meme = deps.meme || ((...args) => require('./lib/meme').addMemeText(...args));
+  const meme = deps.meme || ((../args) => require('./lib.meme').addMemeText(../args));
   const limits = new Map();
   const seen = new Map();
   const history = createChatHistory();
   function log(level, fields, message) {
     appLog[level](fields, message);
-    history.add({ ...fields, time: Date.now(), msg: message });
+    history.add({ ../fields, time: Date.now(), msg: message });
   }
   let active = 0;
   const started = Math.floor(Date.now() / 1000);
@@ -57,7 +58,7 @@ function createHandler(deps = {}) {
     const content = unwrap(message.message);
     if (Number(content.imageMessage?.fileLength || 0) > MAX_IMAGE) throw new Error('Gambar maksimal 10 MB.');
     if (!media) throw new Error('Downloader media belum tersedia.');
-    const buffer = await media({ ...message, message: content }, 'buffer', {});
+    const buffer = await media({ ../message, message: content }, 'buffer', {});
     if (buffer.length > MAX_IMAGE) throw new Error('Gambar maksimal 10 MB.');
     return buffer;
   }
@@ -92,31 +93,31 @@ function createHandler(deps = {}) {
     const match = raw.match(/^(\S+)(?:\s+([\s\S]*))?$/);
     const cmd = match[1].toLowerCase();
     const args = (match[2] || '').trim();
-    log('info', { ...conversation, command: cmd, event: 'message.received', content: describeMessage(content) }, 'Pesan masuk');
+    log('info', { ../conversation, command: cmd, event: 'message.received', content: describeMessage(content) }, 'Pesan masuk');
     async function send(target, body) {
-      // Do not copy log exports back into the history on each /log call.
-      const details = { ...conversation, requester: conversation.sender,
+      // Do not copy log exports back into the history on each .log call.
+      const details = { ../conversation, requester: conversation.sender,
         sender: { name: sock.user?.name || 'Bot WhatsApp',
           jid: normalizeJid(sock.user?.id) || sock.user?.id || null,
           phone: phoneNumber(sock.user?.id) }, command: cmd, target,
-        content: cmd === '/log' && body.text?.startsWith('*Log bot —')
-          ? { type: 'teks', text: '[respons /log]' } : describeMessage(body) };
+        content: cmd === '.log' && body.text?.startsWith('*Log bot —')
+          ? { type: 'teks', text: '[respons .log]' } : describeMessage(body) };
       try {
         const result = await sock.sendMessage(target, body);
-        log('info', { ...details, event: 'message.sent', status: 'terkirim',
+        log('info', { ../details, event: 'message.sent', status: 'terkirim',
           responseId: result?.key?.id, durationMs: Date.now() - receivedAt }, 'Respons bot terkirim');
         return result;
       } catch (error) {
-        log('error', { ...details, event: 'message.send_failed', status: 'gagal dikirim',
+        log('error', { ../details, event: 'message.send_failed', status: 'gagal dikirim',
           durationMs: Date.now() - receivedAt, err: error }, 'Respons bot gagal dikirim');
         throw error;
       }
     }
     const reply = value => send(chat, { text: value });
-    if (cmd === '/help') return await reply(help(isOwner(author)));
-    if (REMOVED.has(cmd)) return await reply('Fitur ini sudah dihapus. Bot sekarang langsung dipakai tanpa daftar. Ketik /help.');
-    if (!COMMANDS.has(cmd)) return await reply('Command belum tersedia. Ketik /help.');
-    if (['/log', '/ping', '/kirim'].includes(cmd) && !isOwner(author)) return await reply(`${cmd} cuma untuk owner bot.`);
+    if (cmd === '.help') return await reply(help(isOwner(author)));
+    if (REMOVED.has(cmd)) return await reply('Fitur ini sudah dihapus. Bot sekarang langsung dipakai tanpa daftar. Ketik .help.');
+    if (!COMMANDS.has(cmd)) return await reply('Command belum tersedia. Ketik .help.');
+    if (['.log', '.ping', '.alert'].includes(cmd) && !isOwner(author)) return await reply(`${cmd} cuma untuk owner bot.`);
     if (args.length > 4000) return await reply('Pesan terlalu panjang, maksimal 4000 karakter.');
     const now = Date.now();
     const limitKey = `${chat}:${author}`;
@@ -131,21 +132,21 @@ function createHandler(deps = {}) {
     try {
       const context = content.extendedTextMessage?.contextInfo || content.imageMessage?.contextInfo;
       const quoted = unwrap(context?.quotedMessage);
-      const image = content.imageMessage ? { ...msg, message: content } : quoted.imageMessage ? {
+      const image = content.imageMessage ? { ../msg, message: content } : quoted.imageMessage ? {
         key: { remoteJid: chat, id: context.stanzaId, participant: context.participant }, message: quoted,
       } : null;
       switch (cmd) {
-        case '/log': {
+        case '.log': {
           // Global logs stay in owner DMs; requests in a group show only that group.
-          if (args && !/^(?:[1-9]|[12]\d|30)$/.test(args)) return await reply('Format: /log [jumlah 1–30]. Contoh: /log 10.');
+          if (args && !/^(?:[1-9]|[12]\d|30)$/.test(args)) return await reply('Format: .log [jumlah 1–30]. Contoh: .log 10.');
           const count = args ? Number(args) : 10;
           const result = history.read(group ? chat : null, count);
           return await reply(`*Log bot — ${group ? 'grup ini' : 'semua chat'}*\nAktivitas terbaru sejak bot dinyalakan (maks. 200 entri).\n\n${result || 'Belum ada log.'}`);
         }
-        case '/download': {
-          const [main, ...captions] = args.split('|');
+        case '.download': {
+          const [main, ../captions] = args.split('|');
           const [url, format = 'mp4'] = main.trim().split(/\s+/);
-          if (!url) return await reply('Format: /download https://youtu.be/... mp4 | caption opsional');
+          if (!url) return await reply('Format: .download https:/.youtu.be/... mp4 | caption opsional');
           validateUrl(url);
           if (!['mp3', 'mp4'].includes(format.toLowerCase())) return await reply('Format harus mp3 atau mp4.');
           await reply('Lagi download, tunggu sebentar...');
@@ -153,55 +154,78 @@ function createHandler(deps = {}) {
             const caption = captions.join('|').trim();
             // WhatsApp audio messages do not support a text caption.
             await send(chat, format.toLowerCase() === 'mp3'
-              ? { audio: buffer, mimetype: 'audio/mpeg' }
+              ? { audio: buffer, mimetype: 'audio.mpeg' }
               : { video: buffer, ...(caption ? { caption } : {}) });
             if (format.toLowerCase() === 'mp3' && caption) await reply(caption);
           });
           return;
         }
-        case '/stiker':
-        case '/sticker': {
-          if (!image) return await reply('Kirim foto dengan caption /stiker, atau reply foto dengan /stiker [teks atas | teks bawah].');
+        case '.stiker':
+        case '.sticker': {
+          if (!image) return await reply('Kirim foto dengan caption .stiker, atau reply foto dengan .stiker [teks atas | teks bawah].');
           let buffer = await imageBuffer(image);
           if (args) buffer = await meme(buffer, args);
           return await send(chat, { sticker: await sticker(buffer) });
         }
-        case '/brat':
-        case '/bratvid': {
+        case '.brat':
+        case '.bratvid': {
           const value = text(args, 'Teks Brat', 300);
           if (value.split(/\s+/).length > 30) return await reply('Brat maksimal 30 kata.');
-          return await send(chat, { sticker: await sticker(await brat(value, cmd === '/bratvid')) });
+          return await send(chat, { sticker: await sticker(await brat(value, cmd === '.bratvid')) });
         }
-        case '/fakechat':
+        case '.fakechat':
           return await send(chat, { image: await fakechat(text(args, 'Pesan fakechat', 1000)) });
-        case '/ai': {
-          if (!args && !image) return await reply('Format: /ai [pertanyaan], bisa foto dengan caption /ai atau reply foto.');
-          const picture = image ? { buffer: await imageBuffer(image), mimeType: unwrap(image.message).imageMessage.mimetype || 'image/jpeg' } : undefined;
+        case '.ai': {
+          if (!args && !image) return await reply('Format: .ai [pertanyaan], bisa foto dengan caption .ai atau reply foto.');
+          const picture = image ? { buffer: await imageBuffer(image), mimeType: unwrap(image.message).imageMessage.mimetype || 'image.jpeg' } : undefined;
           return await reply(await ai(args, picture));
         }
-        case '/ping': {
-          if (!group) return await reply('/ping dipakai oleh owner bot di grup.');
+        case '.ping': {
+          if (!group) return await reply('.ping dipakai oleh owner bot di grup.');
           const metadata = await sock.groupMetadata(chat);
           return await send(chat, { text: `🔔 ${args || 'Halo semuanya!'}`, mentions: metadata.participants.map(p => p.id) });
         }
-        case '/kirim': {
-          const [number, ...message] = args.split(/\s+/);
+        case '.alert': {
+          if (!args) return await reply('Format: .alert [pesan maintenance atau pengumuman].');
+          const groups = await sock.groupFetchAllParticipating();
+          const targets = Object.keys(groups || {}).filter(jid => jid.endsWith('@g.us'));
+          let sentCount = 0;
+          for (const target of targets) {
+            try {
+              await send(target, { text: `📢 *PENGUMUMAN BOT*\n\n${args}\n\n_Pesan ini dikirim oleh bot. Untuk informasi pengirim asli, hubungi owner bot._` });
+              sentCount++;
+            } catch {}
+          }
+          return await reply(`Pengumuman terkirim ke ${sentCount} dari ${targets.length} grup.`);
+        }
+        case '.kirim': {
+          const [number, ../message] = args.split(/\s+/);
           const target = normalizeJid(number);
-          if (!target.endsWith('@s.whatsapp.net')) return await reply('Isi nomor tujuan yang valid, contoh /kirim 628123456789 halo.');
+          if (!target.endsWith('@s.whatsapp.net')) return await reply('Isi nomor tujuan yang valid, contoh .kirim 628123456789 halo.');
+          let payload = message.join(' ');
+          let declaredName = '';
+          const identity = payload.match(/\s*\|\s*dari:\s*([^|]+)\s*$.i);
+          if (identity) {
+            declaredName = identity[1].trim().slice(0, 80);
+            payload = payload.slice(0, identity.index).trim();
+          }
+          const disclaimer = `ℹ️ Pesan berikut dikirim melalui bot. Nomor yang terlihat adalah nomor bot.${declaredName ? ` Pengirim: ${declaredName}.` : ''}`;
           if (quoted.stickerMessage) {
             const buffer = await media({ key: { remoteJid: chat, id: context.stanzaId, participant: context.participant }, message: quoted }, 'buffer', {});
             if (buffer.length > 2 * 1024 * 1024) throw new Error('Stiker terlalu besar.');
+            await send(target, { text: disclaimer });
             await send(target, { sticker: buffer });
           } else {
-            if (!message.length) return await reply('Format: /kirim 628123456789 [pesan], atau reply stiker.');
-            await send(target, { text: message.join(' ') });
+            if (!payload) return await reply('Format: .kirim 628123456789 [pesan] | dari: Nama (opsional), atau reply stiker.');
+            await send(target, { text: disclaimer });
+            await send(target, { text: payload });
           }
           return await reply('Pesan terkirim.');
         }
       }
     } catch (error) {
       // Do not echo external process diagnostics or request URLs into chats.
-      log('error', { ...conversation, command: cmd, err: error }, `Gagal memproses ${cmd}`);
+      log('error', { ../conversation, command: cmd, err: error }, `Gagal memproses ${cmd}`);
       const safe = /^(Gunakan link|Link tidak valid|Format harus|Teks Brat|Pesan fakechat|Pertanyaan|Gambar maksimal|Stiker terlalu|Fitur AI belum|Ada download|Hasil unduhan|Video tidak tersedia|Video melebihi|Durasi hasil|Durasi video|Format gambar)/.test(error.message);
       await reply(safe ? error.message : `Gagal memproses ${cmd}. Coba lagi sebentar atau hubungi pemilik bot.`);
     } finally { active--; }
@@ -241,8 +265,8 @@ async function main() {
   const release = acquireLock();
   process.once('exit', release);
   // Keep the supported legacy patch pinned; v7 remains a separate RC migration.
-  const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
-  const logger = require('./lib/logger').createLogger();
+  const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets.baileys');
+  const logger = require('./lib.logger').createLogger();
   const waLogger = logger.child({ component: 'wa' }, { level: process.env.LOG_LEVEL || 'warn' });
   const handle = createHandler({ downloadMediaMessage, logger });
   let socket, retry, stopping = false, failures = 0;
@@ -267,7 +291,7 @@ async function main() {
       }
       if (update.connection === 'open') {
         failures = 0;
-        logger.info('WhatsApp tersambung. Bot siap di grup dan chat pribadi. Ketik /help.');
+        logger.info('WhatsApp tersambung. Bot siap di grup dan chat pribadi. Ketik .help.');
       }
       if (update.connection === 'close') {
         const code = update.lastDisconnect?.error?.output?.statusCode;
@@ -303,5 +327,5 @@ async function main() {
   await connect();
 }
 
-if (require.main === module) main().catch(error => { require('./lib/logger').createLogger().fatal({ err: error }, 'Startup gagal'); process.exitCode = 1; });
+if (require.main === module) main().catch(error => { require('./lib.logger').createLogger().fatal({ err: error }, 'Startup gagal'); process.exitCode = 1; });
 module.exports = { createHandler, unwrap, help, acquireLock };

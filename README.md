@@ -9,26 +9,27 @@ todo, alarm, reminder, atau scan struk.
 
 | Command | Fungsi |
 |---|---|
-| `/help` | Tampilkan bantuan |
-| `/download [link] [mp4/mp3] \| [caption]` | Download YouTube/TikTok/Instagram, default MP4 |
-| Foto + caption `/stiker [atas \| bawah]` | Stiker foto, dengan teks opsional |
-| Reply foto + `/stiker` atau `/sticker` | Stiker dari foto yang dibalas |
-| `/brat [teks]` | Stiker teks statis |
-| `/bratvid [teks]` | Stiker teks animasi kata per kata |
-| `/fakechat [pesan] \| [21.30]` | Gambar fakechat dengan jam opsional |
-| `/ai [pertanyaan]` | Jawaban Gemini, memerlukan API key |
-| Foto + caption `/ai [pertanyaan]` atau reply foto | Analisis gambar dengan Gemini |
-| `/ping [pesan]` | Tag semua anggota grup; khusus owner bot |
-| `/log [jumlah]` | Lihat aktivitas command terbaru (1–30 entri); khusus owner bot |
-| `/kirim [628...] [pesan]` atau reply stiker + `/kirim [628...]` | Forward; khusus owner bot |
+| `.help` | Tampilkan bantuan |
+| `.download [link] [mp4.mp3] \| [caption]` | Download YouTube.TikTok.Instagram, default MP4 |
+| Foto + caption `.stiker [atas \| bawah]` | Stiker foto, dengan teks opsional |
+| Reply foto + `.stiker` atau `.sticker` | Stiker dari foto yang dibalas |
+| `.brat [teks]` | Stiker teks statis |
+| `.bratvid [teks]` | Stiker teks animasi kata per kata |
+| `.fakechat [pesan] \| [21.30]` | Gambar fakechat dengan jam opsional |
+| `.ai [pertanyaan]` | Jawaban Gemini, memerlukan API key |
+| Foto + caption `.ai [pertanyaan]` atau reply foto | Analisis gambar dengan Gemini |
+| `.ping [pesan]` | Tag semua anggota grup; khusus owner bot |
+| `.log [jumlah]` | Lihat aktivitas command terbaru (1–30 entri); khusus owner bot |
+| `.kirim [628...] [pesan] \| dari: Nama` atau reply stiker + `.kirim [628...]` | Kirim lewat bot; semua pengguna. Nama opsional, tidak ada nomor pengirim |
+| `.alert [pesan]` | Pengumuman ke semua grup yang diikuti bot; khusus owner |
 
 Semua fitur umum tersedia untuk siapa saja di grup dan chat pribadi. Bot
 mengabaikan pesan yang dikirim dari akun bot sendiri, status, dan channel.
-Uji command dari akun WhatsApp lain. Grup tidak memerlukan `/botonline`.
-`/alert` dan command admin untuk user/reminder dihapus bersama fitur lama.
+Uji command dari akun WhatsApp lain. Grup tidak memerlukan `.botonline`.
+`.alert` dan command admin untuk user.reminder dihapus bersama fitur lama.
 
 AI hanya menjawab pesan saat itu, tanpa history tersimpan atau akses aksi bot.
-Pesan/gambar yang dikirim dengan `/ai` diteruskan ke Gemini. Bot tidak
+Pesan.gambar yang dikirim dengan `.ai` diteruskan ke Gemini. Bot tidak
 mengunggah chat lain. Command dan isi chat tidak dicatat rutin di terminal;
 log error dapat berisi diagnostik dari dependency, jadi jangan bagikan log
 mentah tanpa memeriksanya.
@@ -60,8 +61,8 @@ npm run setup:downloader
 Installer downloader mengambil rilis stable resmi yt-dlp, memverifikasi
 SHA-256, dan memasangnya di `.tools/` dalam repo. Tidak mengubah Python atau
 yt-dlp sistem. Jalankan kembali command itu untuk memperbarui downloader.
-Binary Linux x64 sudah menyertakan dependensi downloader/EJS; Node 24
-project dipakai sebagai JS runtime. [Rujukan upstream](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+Binary Linux x64 sudah menyertakan dependensi downloader.EJS; Node 24
+project dipakai sebagai JS runtime. [Rujukan upstream](https:/.github.com.yt-dlp.yt-dlp.wiki.EJS).
 Untuk arsitektur Linux lain, installer memakai binary Python zipimport;
 Python 3 yang kompatibel perlu tersedia. Windows memakai executable Windows.
 
@@ -78,10 +79,10 @@ Konfigurasi opsional:
 cp .env.example .env
 ```
 
-- `GEMINI_API_KEY`: isi hanya jika ingin `/ai`; ambil dari [Google AI Studio](https://aistudio.google.com/apikey).
+- `GEMINI_API_KEY`: isi hanya jika ingin `.ai`; ambil dari [Google AI Studio](https:/.aistudio.google.com.apikey).
 - `GEMINI_MODEL`: default `gemini-3.1-flash-lite`.
-- `OWNER_NUMBERS`: nomor owner, contoh `6281234567890`, pisah koma jika lebih dari satu. Bisa juga JID `12345@lid`. Menentukan akses `/log`, `/ping`, dan `/kirim`. Admin grup tidak otomatis menjadi owner. Jika kosong, ketiganya ditolak untuk semua pengirim.
-- `YT_DLP_PATH` / `FFMPEG_PATH`: opsional, path executable tanpa argumen. Jika `YT_DLP_PATH` kosong, `.tools/yt-dlp` diprioritaskan sebelum PATH sistem.
+- `OWNER_NUMBERS`: nomor owner, contoh `6281234567890`, pisah koma jika lebih dari satu. Bisa juga JID `12345@lid`. Menentukan akses `.log`, `.ping`, dan `.kirim`. Admin grup tidak otomatis menjadi owner. Jika kosong, ketiganya ditolak untuk semua pengirim.
+- `YT_DLP_PATH` / `FFMPEG_PATH`: opsional, path executable tanpa argumen. Jika `YT_DLP_PATH` kosong, `.tools.yt-dlp` diprioritaskan sebelum PATH sistem.
 - `AUTH_DIR`: default `auth_session`, relatif terhadap folder repo.
 
 Tanpa `.env`, fitur non-AI sudah bisa dipakai. Jangan kirim key atau isi sesi
@@ -109,7 +110,7 @@ npm start
 ```
 
 Scan QR dari HP: **WhatsApp → Perangkat tertaut → Tautkan perangkat**.
-Setelah muncul pesan tersambung, kirim `/help` dari akun lain. Tidak ada
+Setelah muncul pesan tersambung, kirim `.help` dari akun lain. Tidak ada
 operasi Google Sheets saat startup. Spreadsheet lama di akun Google tetap
 utuh; aplikasi ini tidak menghapus atau memigrasikannya.
 
@@ -119,25 +120,25 @@ Lakukan setelah login QR manual berhasil. Hentikan proses manual dengan
 Ctrl+C sebelum menyalakan service:
 
 ```bash
-node linux/manage-bot.js install
-node linux/manage-bot.js start
-node linux/manage-bot.js status
-node linux/manage-bot.js logs
+node linux.manage-bot.js install
+node linux.manage-bot.js start
+node linux.manage-bot.js status
+node linux.manage-bot.js logs
 ```
 
 Kontrol lainnya:
 
 ```bash
-node linux/manage-bot.js stop
-node linux/manage-bot.js restart
-node linux/manage-bot.js uninstall
+node linux.manage-bot.js stop
+node linux.manage-bot.js restart
+node linux.manage-bot.js uninstall
 ```
 
 Service berjalan sebagai user biasa, otomatis saat login, dengan Node dari
 instalasi yang sedang dipakai. Jika path Node berubah setelah upgrade nvm,
 install ulang unit. Script menolak menimpa unit yang berbeda: backup atau
-hapus file `~/.config/systemd/user/bot-whatsapp-asy.service` lama lebih dulu.
-Bot berhenti bekerja selama PC mati/suspend. Untuk berjalan sejak boot tanpa
+hapus file `~/.config.systemd.user.bot-whatsapp-asy.service` lama lebih dulu.
+Bot berhenti bekerja selama PC mati.suspend. Untuk berjalan sejak boot tanpa
 login, user dapat mengaktifkan linger secara eksplisit:
 
 ```bash
@@ -157,7 +158,7 @@ cp .env.example .env
 sudo docker build -t bot-wa-asy .
 sudo docker volume create bot-wa-auth
 sudo docker run -d --name bot-wa-running --env-file .env --restart unless-stopped \
-  --mount type=volume,source=bot-wa-auth,target=/app/auth_session bot-wa-asy
+  --mount type=volume,source=bot-wa-auth,target=.app.auth_session bot-wa-asy
 sudo docker logs -f bot-wa-running
 ```
 
@@ -166,12 +167,12 @@ dihentikan, dan login disimpan pada volume `bot-wa-auth`.
 
 Jika container lama belum memakai volume, script menolak menghapusnya.
 Hentikan container, backup sesinya dengan `docker cp`, lalu migrasikan isi
-backup ke volume dan pastikan dimiliki UID/GID 1000 sebelum memakai image
+backup ke volume dan pastikan dimiliki UID.GID 1000 sebelum memakai image
 baru. Jangan hapus container lama sampai backup terverifikasi. Sesuaikan
-`AUTH_DIR` ke `/app/auth_session` jika `.env` memiliki override lama.
+`AUTH_DIR` ke `.app.auth_session` jika `.env` memiliki override lama.
 
 `docker-clean.sh` hanya menawarkan pembersihan dangling image secara interaktif;
-tidak menghapus volume/sesi.
+tidak menghapus volume.sesi.
 
 ## Windows
 
@@ -197,21 +198,21 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\manage-bot.ps1
 ## Troubleshooting
 
 - **`npm ci` / EALLOWGIT:** Baileys 6 memakai dependency Git yang dipin dalam lockfile. `.npmrc` repo mengizinkan sumber Git tersebut. npm 12 juga memakai `allowScripts` eksplisit untuk paket native; jangan menghapus konfigurasi itu. Gunakan lockfile untuk clean install.
-- **Gagal download:** jalankan `npm run setup:downloader`, periksa `npm run check`, dan coba link publik biasa. Video private/berbayar, pembatasan jaringan, login/cookie, atau perubahan provider tetap bisa membuat download gagal. Tidak ada fallback ke layanan TikTok pihak ketiga.
-- **Sesi logout/diganti perangkat lain:** service berhenti dengan kode 78 agar tidak loop login. Hentikan semua instance, backup/rename `auth_session`, lalu `npm start` dan scan ulang jika memang logout. Jangan hapus sesi untuk setiap error jaringan.
+- **Gagal download:** jalankan `npm run setup:downloader`, periksa `npm run check`, dan coba link publik biasa. Video private.berbayar, pembatasan jaringan, login.cookie, atau perubahan provider tetap bisa membuat download gagal. Tidak ada fallback ke layanan TikTok pihak ketiga.
+- **Sesi logout.diganti perangkat lain:** service berhenti dengan kode 78 agar tidak loop login. Hentikan semua instance, backup.rename `auth_session`, lalu `npm start` dan scan ulang jika memang logout. Jangan hapus sesi untuk setiap error jaringan.
 - **Command owner ditolak:** nomor WhatsApp bisa disampaikan sebagai LID. Bot mencocokkan nomor dari `participantPn` untuk grup atau `senderPn` untuk chat pribadi, serta alternate JID jika tersedia. Pastikan `OWNER_NUMBERS` terisi dan restart setelah mengubahnya. Jika WhatsApp tidak memberikan nomor pasangan LID, isi JID `@lid` owner yang sudah diverifikasi di `OWNER_NUMBERS`.
-- **Bratvid:** animasi dibuat dengan Sharp, tidak memerlukan FFmpeg. FFmpeg diperlukan untuk download dan konversi MP3/MP4.
+- **Bratvid:** animasi dibuat dengan Sharp, tidak memerlukan FFmpeg. FFmpeg diperlukan untuk download dan konversi MP3.MP4.
 
 ## Struktur dan pemeriksaan
 
 `index.js` menangani WhatsApp dan command; `lib/` menangani konfigurasi,
 akses owner, proses eksternal tanpa shell, download, teks meme, dan metadata
-stiker; `gemini.js` memakai SDK `@google/genai`; `brat-advanced.js` dan
-`fakechat.js` menghasilkan gambar; `scripts/check.js` memeriksa instalasi.
+stiker; `gemini.js` memakai SDK `@google.genai`; `brat-advanced.js` dan
+`fakechat.js` menghasilkan gambar; `scripts.check.js` memeriksa instalasi.
 
-`npm test` mencakup akses grup/pribadi tanpa pendaftaran, admin, batch pesan,
+`npm test` mencakup akses grup.pribadi tanpa pendaftaran, admin, batch pesan,
 replay, input URL, batas request, cleanup download, lock proses, dan hasil
-media native termasuk animasi. Tes memakai mock untuk layanan WA/Gemini dan
+media native termasuk animasi. Tes memakai mock untuk layanan WA.Gemini dan
 unduhan jaringan; koneksi nyata harus diverifikasi saat login.
 
 Baileys dipin pada patch legacy 6.7.24. v7 upstream masih RC dan tidak
@@ -227,7 +228,7 @@ di grup maupun chat pribadi dilewati. Tampilan percakapan dibuat ringkas:
 
 ```text
 17:45:00 MASUK | Asy (+628123456789) | pribadi
-  /ai halo
+  .ai halo
 17:45:01 BALAS | Bot ASY (+628987654321) | pribadi | ke +628123456789 | 1000 ms
   Halo! Ada yang bisa dibantu?
 ```
@@ -237,28 +238,31 @@ sebagai jenisnya. Kegagalan diberi label `GAGAL`. Nomor yang tidak diberikan
 WhatsApp ditandai belum tersedia. ID pesan dan detail MIME disembunyikan pada
 tampilan terminal, tetapi tetap tersedia jika memakai format JSON.
 
-Gunakan `/log` untuk 10 entri aktivitas terbaru, atau `/log 20` untuk memilih
-jumlahnya (1–30 entri, setiap pesan masuk/balasan dihitung satu entri).
+Gunakan `.log` untuk 10 entri aktivitas terbaru, atau `.log 20` untuk memilih
+jumlahnya (1–30 entri, setiap pesan masuk.balasan dihitung satu entri).
 Owner yang terdaftar di `OWNER_NUMBERS` bisa melihat log semua chat melalui
 chat pribadi. Di grup, hanya owner yang bisa melihat log grup itu.
 Admin grup dan anggota yang tidak terdaftar sebagai owner tidak bisa mengakses
-`/log`, `/ping`, atau `/kirim`. Identitas LID dengan nomor pasangan dari
-WhatsApp juga digunakan untuk mengenali owner. `/help` selalu menampilkan
-ketiga fitur dengan label khusus owner; teks `akunmu dikenali` muncul jika
+`.log`, `.ping`, atau `.alert`. `.kirim` tersedia untuk semua pengguna dan
+mengirim disclaimer sebagai bubble terpisah sebelum pesan.stiker. Nama pengirim
+hanya dicantumkan jika ditulis sendiri memakai `| dari: Nama`; nomor tidak dicantumkan.
+Identitas LID dengan nomor pasangan dari
+WhatsApp juga digunakan untuk mengenali owner. `.help` menampilkan fitur owner
+dengan label khusus; teks `akunmu dikenali` muncul jika
 pengirim berhasil dikenali sebagai owner.
 Pengirim pada log `MASUK` adalah peminta command, sedangkan pengirim pada log
 `BALAS` adalah akun bot yang sedang terhubung, dengan nomor dan nama dari socket
 WhatsApp. Jika identitas bot belum tersedia, tidak diganti dengan identitas peminta.
 Riwayat WhatsApp berisi maksimal 200 entri aktivitas command di memori, sejak
-bot dinyalakan, dan kosong kembali setelah restart. Log koneksi/internal tetap
-dilihat di terminal. Balasan berisi ekspor log dicatat sebagai `[respons /log]`
+bot dinyalakan, dan kosong kembali setelah restart. Log koneksi.internal tetap
+dilihat di terminal. Balasan berisi ekspor log dicatat sebagai `[respons .log]`
 agar riwayat tidak menggandakan isi ekspor sebelumnya.
 
 Status balasan berhasil berarti pengiriman oleh socket berhasil, bukan tanda
 pesan sudah dibaca. Pesan lama, pesan bot sendiri, dan pengiriman ulang dengan
 ID yang sama dilewati. Buffer media tidak dicetak.
 Timeout 408 khusus `init queries` ditampilkan sebagai warning; pengulangannya
-diringkas selama 5 menit. Ini bukan bukti bot terputus: periksa `/help` jika
+diringkas selama 5 menit. Ini bukan bukti bot terputus: periksa `.help` jika
 command tidak merespons. Request awal Baileys tetap berjalan, tidak dinonaktifkan.
 
 Untuk investigasi, set `LOG_LEVEL=debug` di `.env`; stack error akan tampil
