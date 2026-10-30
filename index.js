@@ -202,7 +202,7 @@ function createHandler(deps = {}) {
     } catch (error) {
       // Do not echo external process diagnostics or request URLs into chats.
       log('error', { ...conversation, command: cmd, err: error }, `Gagal memproses ${cmd}`);
-      const safe = /^(Gunakan link|Link tidak valid|Format harus|Teks Brat|Pesan fakechat|Pertanyaan|Gambar maksimal|Stiker terlalu|Fitur AI belum|Ada download|Hasil unduhan|Format gambar)/.test(error.message);
+      const safe = /^(Gunakan link|Link tidak valid|Format harus|Teks Brat|Pesan fakechat|Pertanyaan|Gambar maksimal|Stiker terlalu|Fitur AI belum|Ada download|Hasil unduhan|Video tidak tersedia|Video melebihi|Durasi hasil|Durasi video|Format gambar)/.test(error.message);
       await reply(safe ? error.message : `Gagal memproses ${cmd}. Coba lagi sebentar atau hubungi pemilik bot.`);
     } finally { active--; }
   }
