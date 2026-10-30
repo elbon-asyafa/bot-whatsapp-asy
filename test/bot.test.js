@@ -4,31 +4,31 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createHandler, acquireLock, help } = require('../index');
-const { config } = require('../lib.config');
+const { config } = require('../lib/config');
 let counter = 0;
 function message(value, chat = '12000@g.us', extra = {}) {
-  return { key: { remoteJid: chat, participant: '628111111111@s.whatsapp.net', id: String(counter++), ../extra }, message: { conversation: value } };
+  return { key: { remoteJid: chat, participant: '628111111111@s.whatsapp.net', id: String(counter++), ...extra }, message: { conversation: value } };
 }
 function setup(deps) {
   const sent = [];
   const records = [];
   const logger = {
-    info: (fields, message) => records.push({ level: 'info', ../fields, message }),
-    error: (fields, message) => records.push({ level: 'error', ../fields, message }),
+    info: (fields, message) => records.push({ level: 'info', ...fields, message }),
+    error: (fields, message) => records.push({ level: 'error', ...fields, message }),
   };
   const sock = { user: { id: '628555555555:7@s.whatsapp.net', name: 'Bot ASY' }, sendMessage: async (chat, body) => { sent.push({ chat, body }); }, groupMetadata: async () => ({ participants: [
     { id: '628999999999@s.whatsapp.net', admin: 'admin' }, { id: '628111111111@s.whatsapp.net', admin: null },
   ] }) };
-  const handler = createHandler({ logger, ../deps });
-  return { sent, sock, records, call: (../messages) => handler(sock, { type: 'notify', messages }) };
+  const handler = createHandler({ logger, ...deps });
+  return { sent, sock, records, call: (...messages) => handler(sock, { type: 'notify', messages }) };
 }
 
 test('help always lists owner commands and labels recognized owners', () => {
   for (const owner of [true, false]) {
     assert.match(help(owner), /\.kirim \[nomor\]/);
-    assert.match(help(owner), .Khusus owner/);
+    assert.match(help(owner), /Khusus owner/);
   }
-  assert.match(help(true), .akunmu dikenali/);
+  assert.match(help(true), /akunmu dikenali/);
   assert(!help(false).includes('akunmu dikenali'));
 });
 
@@ -41,7 +41,7 @@ test('Baileys participantPn and senderPn recognize owners in group and private L
     assert.equal(sent.at(-1).body.mentions.length, 2);
     assert.equal(records[0].sender.phone, '+628777777777');
     await call(message('.help', '70102@lid', { senderPn: config.ownerNumbers[0] }));
-    assert.match(sent.at(-1).body.text, .akunmu dikenali/);
+    assert.match(sent.at(-1).body.text, /akunmu dikenali/);
     await call(message('.kirim 628222222222 tes', '70102@lid', { senderPn: config.ownerNumbers[0] }));
     assert(sent.some(item => item.chat === '628222222222@s.whatsapp.net' && item.body.text === 'tes'));
     await call(message('.log', '70102@lid', { senderPn: config.ownerNumbers[0] }));
@@ -55,7 +55,7 @@ test('group envelope senderPn cannot authorize a different participant as owner'
   try {
     const { call, sent } = setup();
     await call(message('.ping', undefined, { participant: '70103@lid', senderPn: config.ownerNumbers[0], participantPn: '628333333333@s.whatsapp.net' }));
-    assert.match(sent.at(-1).body.text, .cuma untuk owner/);
+    assert.match(sent.at(-1).body.text, /cuma untuk owner/);
     assert.equal(sent.at(-1).body.mentions, undefined);
   } finally { config.ownerNumbers = before; }
 });
@@ -96,7 +96,7 @@ test('group admins, alternate admin identities and private non-owners cannot use
         message(command, '628111111111@s.whatsapp.net'));
     }
     assert.equal(sent.length, 9);
-    assert(sent.every(item => .cuma untuk owner bot/.test(item.body.text)));
+    assert(sent.every(item => /cuma untuk owner bot/.test(item.body.text)));
     assert(sent.every(item => !item.body.mentions && item.chat !== '628222222222@s.whatsapp.net'));
   } finally { config.ownerNumbers = owners; }
 });
@@ -109,24 +109,24 @@ test('owner can read all chats privately, while group requests remain scoped', a
     const { call, sent } = setup({ ai: async value => value });
     await call(message('.ai pribadi saja', '628111111111@s.whatsapp.net'), message('.ai grup saja'));
     await call(message('.log 30', '777@lid', { remoteJidAlt: owner }));
-    assert.match(sent.at(-1).body.text, .pribadi saja/);
-    assert.match(sent.at(-1).body.text, .grup saja/);
+    assert.match(sent.at(-1).body.text, /pribadi saja/);
+    assert.match(sent.at(-1).body.text, /grup saja/);
     await call(message('.log 30', undefined, { participant: owner }));
-    assert.match(sent.at(-1).body.text, .grup saja/);
+    assert.match(sent.at(-1).body.text, /grup saja/);
     assert(!sent.at(-1).body.text.includes('pribadi saja'));
     await call(message('.log 31', owner));
-    assert.match(sent.at(-1).body.text, .Format: \.log/);
+    assert.match(sent.at(-1).body.text, /Format: \.log/);
   } finally { config.ownerNumbers = owners; }
 });
 
 test('log history is bounded and log exports are not copied into subsequent exports', async () => {
-  const { createChatHistory } = require('../lib.chat-log');
+  const { createChatHistory } = require('../lib/chat-log');
   const history = createChatHistory(2);
   for (const text of ['expired', 'kept one', 'kept two']) history.add({ time: Date.now(),
     sender: { name: 'Asy', phone: '+628111111111' }, chat: '12000@g.us', chatType: 'grup',
     event: 'message.received', content: { type: 'teks', text } });
   assert(!history.read(null, 30).includes('expired'));
-  assert.match(history.read(null, 1), .kept two/);
+  assert.match(history.read(null, 1), /kept two/);
   assert(!history.read('other@g.us', 30));
   const owners = config.ownerNumbers;
   config.ownerNumbers = ['628777777777@s.whatsapp.net'];
@@ -150,7 +150,7 @@ test('failed AI requests and failed sends retain conversation context', async ()
   const first = setup({ ai: async () => { throw new Error('AI offline'); } });
   await first.call(message('.ai halo'));
   assert(first.records.some(record => record.err?.message === 'AI offline' && record.sender.phone === '+628111111111'));
-  assert(first.records.some(record => record.event === 'message.sent' && .Gagal memproses/.test(record.content.text)));
+  assert(first.records.some(record => record.event === 'message.sent' && /Gagal memproses/.test(record.content.text)));
   const second = setup();
   second.sock.sendMessage = async () => { throw new Error('Disconnected'); };
   await second.call(message('.help'));
@@ -183,7 +183,7 @@ test('non-command, newsletter, own message and old delivery do not drop the next
   const old = message('.help'); old.messageTimestamp = 1;
   await call(message('halo'), message('.help', '123@newsletter'), message('.help', undefined, { fromMe: true }), old, message('.help'));
   assert.equal(sent.length, 1);
-  assert.match(sent[0].body.text, .Tidak perlu daftar/);
+  assert.match(sent[0].body.text, /Tidak perlu daftar/);
 });
 
 test('replayed message is suppressed but following messages still run', async () => {
@@ -196,7 +196,7 @@ test('old account and Sheets commands have no side effects', async () => {
   const { sent, call } = setup();
   await call(message('.daftarbot nama'), message('.rekap'), message('.alarm 12:00 makan'));
   assert.equal(sent.length, 3);
-  assert(sent.every(x => .sudah dihapus/.test(x.body.text)));
+  assert(sent.every(x => /sudah dihapus/.test(x.body.text)));
 });
 
 test('owner can tag group members without being a group admin', async () => {
@@ -207,7 +207,7 @@ test('owner can tag group members without being a group admin', async () => {
     await call(message('.ping halo'));
     assert.equal(sent[0].body.mentions.length, 2);
     await call(message('.ping halo', config.ownerNumbers[0]));
-    assert.match(sent[1].body.text, .dipakai oleh owner bot di grup/);
+    assert.match(sent[1].body.text, /dipakai oleh owner bot di grup/);
   } finally { config.ownerNumbers = owners; }
 });
 
@@ -241,7 +241,7 @@ test('forwarding is owner-only, accepting a trusted alternate identity', async (
   try {
     const { sent, call } = setup();
     await call(message('.kirim 628222222222 halo'));
-    assert.equal(sent.length, 1); assert.match(sent[0].body.text, .cuma untuk owner/);
+    assert.equal(sent.length, 1); assert.match(sent[0].body.text, /cuma untuk owner/);
     await call(message('.kirim 628222222222 halo', undefined, { participant: '999@lid', participantAlt: '628999999999@s.whatsapp.net' }));
     assert(sent.some(x => x.chat === '628222222222@s.whatsapp.net' && x.body.text === 'halo'));
   } finally { config.ownerNumbers = owners; }
@@ -263,7 +263,7 @@ test('request concurrency is bounded and the limit is released after completion'
   const { call, sent } = setup({ ai: async () => { await pending; return 'ok'; } });
   const first = call(message('.ai a')); const second = call(message('.ai b'));
   await call(message('.ai c'));
-  assert(sent.some(x => .request lain/.test(x.body.text)));
+  assert(sent.some(x => /request lain/.test(x.body.text)));
   finish(); await Promise.all([first, second]);
   await call(message('.ai d'));
   assert.equal(sent.filter(x => x.body.text === 'ok').length, 3);
@@ -274,7 +274,7 @@ test('runtime lock refuses a second process and recovers a stale lock', () => {
   const file = path.join(dir, '.bot.lock');
   try {
     const release = acquireLock(file);
-    assert.throws(() => acquireLock(file), .sudah berjalan/);
+    assert.throws(() => acquireLock(file), /sudah berjalan/);
     release(); assert(!fs.existsSync(file));
     fs.writeFileSync(file, '2147483647');
     const cleanup = acquireLock(file); cleanup();

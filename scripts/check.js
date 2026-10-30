@@ -1,6 +1,6 @@
 const path = require('node:path');
-const { config, aiEnabled } = require('../lib.config');
-const { run } = require('../lib.process');
+const { config, aiEnabled } = require('../lib/config');
+const { run } = require('../lib/process');
 let failures = 0;
 async function check(label, fn) {
   try { console.log(`[OK] ${label}: ${await fn() || 'siap'}`); }
@@ -12,7 +12,7 @@ async function check(label, fn) {
     return process.version;
   });
   await check('Baileys', () => {
-    if (typeof require('@whiskeysockets.baileys').default !== 'function') throw new Error('Jalankan npm ci.');
+    if (typeof require('@whiskeysockets/baileys').default !== 'function') throw new Error('Jalankan npm ci.');
   });
   await check('Canvas dan font', () => {
     const canvas = require('canvas');
@@ -32,7 +32,7 @@ async function check(label, fn) {
     if (stdout < '2025.11.12') throw new Error(`${stdout}; perbarui yt-dlp untuk dukungan YouTube.EJS.`);
     return stdout;
   });
-  await check('SDK Gemini', () => { require('@google.genai'); });
+  await check('SDK Gemini', () => { require('@google/genai'); });
   console.log(aiEnabled() ? '[INFO] API key AI terisi; koneksi API belum diuji.' : '[INFO] AI belum diaktifkan. Isi GEMINI_API_KEY jika ingin .ai.');
   console.log(`[INFO] Owner: ${config.ownerNumbers.length ? 'terkonfigurasi' : 'belum diisi (.log, .ping, dan .kirim tidak bisa dipakai)'}. Tidak memerlukan Google Sheets.`);
   console.log('[INFO] Login WA dan download nyata perlu dites setelah instalasi sistem selesai.');

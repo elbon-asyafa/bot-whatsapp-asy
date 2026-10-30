@@ -1,6 +1,6 @@
-const { GoogleGenAI } = require('@google.genai');
-const { config, aiEnabled } = require('./lib.config');
-const { text } = require('./lib.validation');
+const { GoogleGenAI } = require('@google/genai');
+const { config, aiEnabled } = require('./lib/config');
+const { text } = require('./lib/validation');
 
 const SYSTEM_INSTRUCTION = `Kamu asisten AI di bot WhatsApp ASY buatan Elbon.Asyafa.
 Bot menyediakan .download, .stiker, .brat, .bratvid, .fakechat, dan .ai di grup maupun chat pribadi.
@@ -27,7 +27,7 @@ async function tanyaAI(prompt, image) {
     contents: [{ role: 'user', parts }],
     config: { systemInstruction: SYSTEM_INSTRUCTION, maxOutputTokens: 1500 },
   });
-  const result = String(response.text || '').replace(/\*\*.g, '*').replace(/^#{1,6}\s*.gm, '').trim();
+  const result = String(response.text || '').replace(/\*\*/g, '*').replace(/^#{1,6}\s*/gm, '').trim();
   if (!result) throw new Error('AI tidak memberikan jawaban. Coba ubah pertanyaannya.');
   return result.slice(0, 10000);
 }

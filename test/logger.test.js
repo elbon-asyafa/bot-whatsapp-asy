@@ -65,7 +65,7 @@ test('pretty conversation output is compact, bounded and safe for terminal displ
   const result = formatRecord({ time: Date.UTC(2026, 9, 27, 10), level: 30, msg: 'Respons bot terkirim',
     event: 'message.sent',
     sender: { name: 'Asy\u001b[31m', phone: '+628111111111', jid: '999@lid' }, chatType: 'grup',
-    chat: '12000@g.us', messageId: 'incoming', target: '12000@g.us', command: '/ai',
+    chat: '12000@g.us', messageId: 'incoming', target: '12000@g.us', command: '.ai',
     content: { type: 'teks', text: 'halo\nbaris kedua\u001b' }, status: 'terkirim', durationMs: 42 });
   assert.match(result, /^17:00:00 BALAS \| Asy.*\(\+628111111111\)/);
   assert(!result.includes('incoming'));
