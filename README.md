@@ -20,8 +20,7 @@ todo, alarm, reminder, atau scan struk.
 | Foto + caption `.ai [pertanyaan]` atau reply foto | Analisis gambar dengan Gemini |
 | `.ping [pesan]` | Tag semua anggota grup; khusus owner bot |
 | `.log [jumlah]` | Lihat aktivitas command terbaru (1–30 entri); khusus owner bot |
-| `.kirim [628...] [pesan] \| dari: Nama` atau reply stiker + `.kirim [628...]` | Teruskan lewat bot; khusus owner. Nama opsional, nomor pengirim tidak dicantumkan |
-| `.alert [pesan]` | Pengumuman ke semua grup yang diikuti bot; khusus owner |
+| `.kirim [628...] [pesan] \| dari: Nama` atau reply stiker + `.kirim [628...]` | Teruskan lewat bot; tersedia untuk semua pengguna. Nama opsional, nomor pengirim tidak dicantumkan |
 
 Semua fitur umum tersedia untuk siapa saja di grup dan chat pribadi. Bot
 mengabaikan pesan yang dikirim dari akun bot sendiri, status, dan channel.
@@ -81,7 +80,7 @@ cp .env.example .env
 
 - `GEMINI_API_KEY`: isi hanya jika ingin `.ai`; ambil dari [Google AI Studio](https:/.aistudio.google.com.apikey).
 - `GEMINI_MODEL`: default `gemini-3.1-flash-lite`.
-- `OWNER_NUMBERS`: nomor owner, contoh `6281234567890`, pisah koma jika lebih dari satu. Bisa juga JID `12345@lid`. Menentukan akses `.log`, `.ping`, `.kirim`, dan `.alert`. Admin grup tidak otomatis menjadi owner. Jika kosong, command tersebut ditolak untuk semua pengirim.
+- `OWNER_NUMBERS`: nomor owner, contoh `6281234567890`, pisah koma jika lebih dari satu. Bisa juga JID `12345@lid`. Menentukan akses `.log` dan `.ping`. Admin grup tidak otomatis menjadi owner. Jika kosong, command tersebut ditolak untuk semua pengirim.
 - `YT_DLP_PATH` / `FFMPEG_PATH`: opsional, path executable tanpa argumen. Jika `YT_DLP_PATH` kosong, `.tools.yt-dlp` diprioritaskan sebelum PATH sistem.
 - `AUTH_DIR`: default `auth_session`, relatif terhadap folder repo.
 
@@ -243,8 +242,8 @@ jumlahnya (1–30 entri, setiap pesan masuk.balasan dihitung satu entri).
 Owner yang terdaftar di `OWNER_NUMBERS` bisa melihat log semua chat melalui
 chat pribadi. Di grup, hanya owner yang bisa melihat log grup itu.
 Admin grup dan anggota yang tidak terdaftar sebagai owner tidak bisa mengakses
-`.log`, `.ping`, `.kirim`, atau `.alert`. `.kirim` hanya tersedia untuk owner dan
-mengirim disclaimer sebagai bubble terpisah sebelum pesan.stiker. Nama pengirim
+`.log` atau `.ping`. `.kirim` tersedia untuk semua pengguna dan mengirim
+disclaimer sebagai bubble terpisah sebelum pesan atau stiker. Nama pengirim
 hanya dicantumkan jika ditulis sendiri memakai `| dari: Nama`; nomor tidak dicantumkan.
 Identitas LID dengan nomor pasangan dari
 WhatsApp juga digunakan untuk mengenali owner. `.help` menampilkan fitur owner

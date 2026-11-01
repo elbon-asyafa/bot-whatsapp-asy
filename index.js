@@ -26,9 +26,9 @@ function help(owner) {
     `.brat [teks] — stiker teks\n.bratvid [teks] — stiker teks animasi\n` +
     `.fakechat [pesan] | [jam] — gambar fakechat\n` +
     `.ai [pertanyaan] — tanya AI; bisa foto atau reply foto\n` +
+    `.kirim [nomor] [pesan] — kirim lewat bot; opsional: | dari: Nama (bisa dipakai semua pengguna)\n` +
     `.help — daftar command` +
-    `\n\n.kirim [nomor] [pesan] — kirim lewat bot; opsional: | dari: Nama\n` +
-    `\n*Khusus owner${owner ? ' — akunmu dikenali' : ''}*\n.ping [pesan] — tag anggota grup\n.log [jumlah] — log terbaru (maksimal 30)\n.kirim [nomor] [pesan] — teruskan pesan melalui bot\n.alert [pesan] — kirim pengumuman ke semua grup bot` +
+    `\n\n*Khusus owner${owner ? ' — akunmu dikenali' : ''}*\n.ping [pesan] — tag anggota grup\n.log [jumlah] — log terbaru (maksimal 30)` +
     `\n\nDownload: maksimal 60 MB dan 15 menit durasi. AI memerlukan API key dari pemilik bot.`;
 }
 
@@ -117,7 +117,7 @@ function createHandler(deps = {}) {
     if (cmd === '.help') return await reply(help(isOwner(author)));
     if (REMOVED.has(cmd)) return await reply('Fitur ini sudah dihapus. Bot sekarang langsung dipakai tanpa daftar. Ketik .help.');
     if (!COMMANDS.has(cmd)) return await reply('Command belum tersedia. Ketik .help.');
-    if (['.log', '.ping', '.kirim', '.alert'].includes(cmd) && !isOwner(author)) return await reply(`${cmd} cuma untuk owner bot.`);
+    if (['.log', '.ping'].includes(cmd) && !isOwner(author)) return await reply(`${cmd} cuma untuk owner bot.`);
     if (args.length > 4000) return await reply('Pesan terlalu panjang, maksimal 4000 karakter.');
     const now = Date.now();
     const limitKey = `${chat}:${author}`;

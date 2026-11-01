@@ -23,10 +23,13 @@ function setup(deps) {
   return { sent, sock, records, call: (...messages) => handler(sock, { type: 'notify', messages }) };
 }
 
-test('help always lists owner commands and labels recognized owners', () => {
+test('help lists forwarding once for everyone and labels owner commands', () => {
   for (const owner of [true, false]) {
-    assert.match(help(owner), /\.kirim \[nomor\]/);
+    assert.equal((help(owner).match(/\.kirim \[nomor\]/g) || []).length, 1);
+    assert.match(help(owner), /bisa dipakai semua pengguna/);
     assert.match(help(owner), /Khusus owner/);
+    assert.equal((help(owner).match(/\.ping \[pesan\]/g) || []).length, 1);
+    assert(!help(owner).includes('.alert'));
   }
   assert.match(help(true), /akunmu dikenali/);
   assert(!help(false).includes('akunmu dikenali'));
@@ -90,12 +93,12 @@ test('group admins, alternate admin identities and private non-owners cannot use
   try {
     const { call, sent, sock } = setup();
     sock.groupMetadata = async () => { throw new Error('must not query metadata for non-owners'); };
-    for (const command of ['.log', '.ping', '.kirim 628222222222 halo']) {
+    for (const command of ['.log', '.ping']) {
       await call(message(command, undefined, { participant: '628999999999@s.whatsapp.net' }),
         message(command, undefined, { participant: '888@lid', participantAlt: '628999999999@s.whatsapp.net' }),
         message(command, '628111111111@s.whatsapp.net'));
     }
-    assert.equal(sent.length, 9);
+    assert.equal(sent.length, 6);
     assert(sent.every(item => /cuma untuk owner bot/.test(item.body.text)));
     assert(sent.every(item => !item.body.mentions && item.chat !== '628222222222@s.whatsapp.net'));
   } finally { config.ownerNumbers = owners; }
@@ -235,15 +238,14 @@ test('AI in group and private is stateless and scoped to the current message', a
   assert.equal(sent[1].body.text, 'Jawab halo');
 });
 
-test('forwarding is owner-only, accepting a trusted alternate identity', async () => {
+test('any bot user can forward a message, including without configured owner', async () => {
   const owners = config.ownerNumbers;
-  config.ownerNumbers = ['628999999999@s.whatsapp.net'];
+  config.ownerNumbers = [];
   try {
     const { sent, call } = setup();
     await call(message('.kirim 628222222222 halo'));
-    assert.equal(sent.length, 1); assert.match(sent[0].body.text, /cuma untuk owner/);
-    await call(message('.kirim 628222222222 halo', undefined, { participant: '999@lid', participantAlt: '628999999999@s.whatsapp.net' }));
     assert(sent.some(x => x.chat === '628222222222@s.whatsapp.net' && x.body.text === 'halo'));
+    assert(sent.some(x => x.chat === '628222222222@s.whatsapp.net' && /dikirim melalui bot/.test(x.body.text)));
   } finally { config.ownerNumbers = owners; }
 });
 
